@@ -1,3 +1,5 @@
+extern crate serde;
+
 use rayon::prelude::*;
 use lazy_static::lazy_static;
 use std::error::Error;
@@ -7,6 +9,11 @@ use select::predicate::Name;
 use regex::Regex;
 use url::Url;
 use std::collections::BTreeMap;
+use bincode::serialize;
+use s3::bucket::Bucket;
+use awscreds::Credentials;
+use awsregion::Region;
+use std::time::Instant;
 
 lazy_static! {
     static ref ACADEMIC_RE: Regex = Regex::new(r".+\.(edu|ac\.??)").unwrap();
@@ -50,6 +57,7 @@ fn count_terms(document: &Document) -> Vec<(String, u32)> {
 
 struct DocStats {
     id: u32,
+    url: String,
     terms: Vec<(String, u32)>,
     n_terms: u32,
     links: Option<Vec<String>>,
@@ -72,7 +80,7 @@ fn crawl(url: String, id: u32) -> Option<DocStats> {
 
     let source_url = Url::parse(&url).ok()?;
     if !is_academic(&source_url) {
-        return Some(DocStats {id, terms, n_terms, links: None})
+        return Some(DocStats {id, url, terms, n_terms, links: None})
     }
 
     let links = document
@@ -83,10 +91,11 @@ fn crawl(url: String, id: u32) -> Option<DocStats> {
         .map(Url::into_string)
         .collect();
 
-    return Some(DocStats {id, terms, n_terms, links: Some(links)})
+    return Some(DocStats {id, url, terms, n_terms, links: Some(links)})
 }
 
-fn crawl_block(urls: Vec<String>, ids: Vec<u32>) -> Vec<String> {
+fn crawl_block(urls: Vec<String>, ids: Vec<u32>, block_id: u32) -> (Vec<String>, u32) {
+    let n_urls = urls.len();
     let urls_and_ids: Vec<(String, u32)> = urls
         .into_iter()
         .zip(ids)
@@ -109,10 +118,12 @@ fn crawl_block(urls: Vec<String>, ids: Vec<u32>) -> Vec<String> {
         println!("{}", link);
     }
 
-    let mut docmeta: BTreeMap<u32, u32> = BTreeMap::new();
+    let mut docmeta: BTreeMap<u32, (u32, String)> = BTreeMap::new();
     for stats in &document_stats {
-        docmeta.insert(stats.id, stats.n_terms);
+        docmeta.insert(stats.id, (stats.n_terms, stats.url.clone()));
     }
+
+    let err_count = (n_urls - document_stats.len()) as u32;
 
     let mut index: BTreeMap<String, Vec<(u32, u32)>> = BTreeMap::new();
     for stats in document_stats {
@@ -125,20 +136,45 @@ fn crawl_block(urls: Vec<String>, ids: Vec<u32>) -> Vec<String> {
         }
     }
 
-    links
+    let credentials = Credentials::default_blocking().unwrap();
+
+    let index_bucket = Bucket::new("web-crawler-index", Region::UsEast1, credentials.clone()).unwrap();
+    let index_bytes = serialize(&index).expect("could not serialize");
+    index_bucket.put_object_blocking(block_id.to_string(), &index_bytes, "text/plain").unwrap();
+
+    let meta_bucket = Bucket::new("web-crawler-meta", Region::UsEast1, credentials.clone()).unwrap();
+    let meta_bytes = serialize(&docmeta).expect("could not serialize");
+    meta_bucket.put_object_blocking(block_id.to_string(), &meta_bytes, "text/plain").unwrap();
+
+    (links, err_count)
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let ids = (0..4).collect();
+    let mut id_start = 0;
+    let mut id_end = 4;
+    let ids = (id_start..id_end).collect();
     let urls: Vec<String> = vec!["https://columbia.edu", "https://harvard.edu", "https://stanford.edu", "https://www.cam.ac.uk"]
         .into_iter()
         .map(String::from)
         .collect();
 
-    let links = crawl_block(urls, ids);
+    let start = Instant::now();
+    let (links, _err_count) = crawl_block(urls, ids, 0);
+    println!("{:?} urls/sec", (id_end - id_start) as f64 / start.elapsed().as_secs() as f64);
 
-    let ids = (4..(links.len() as u32 + 4)).collect();
-    let _links = crawl_block(links, ids);
+    id_start = id_end;
+    id_end = id_start + links.len() as u32;
+    let ids = (id_start..id_end).collect();
+    let start = Instant::now();
+    let (mut links, _err_count) = crawl_block(links, ids, 1);
+    println!("{:?} urls/sec", (id_end - id_start) as f64 / start.elapsed().as_secs() as f64);
+
+    links = links[0..1000].to_vec();
+    id_start = id_end;
+    id_end = id_start + links.len() as u32;
+    let ids = (id_start..id_end).collect();
+    let (_links, _err_count) = crawl_block(links, ids, 2);
+    println!("{:?} urls/sec", (id_end - id_start) as f64 / start.elapsed().as_secs() as f64);
 
     Ok(())
 }
