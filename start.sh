@@ -14,7 +14,8 @@ export META_DIR=$CRAWLER_FS/url-metadata
 mkdir $CRAWLER_FS/url-indexes
 export INDEX_DIR=$CRAWLER_FS/url-indexes
 
-export SEEN_URL_PATH=$CRAWLER_FS/seen-urls.sled
+mkdir $CRAWLER_FS/seen-urls
+export SEEN_URL_DIR=$CRAWLER_FS/seen-urls
 
-for i in {1..7}; do $WEB_CRAWLER & done
-$WEB_CRAWLER
+for i in {1..5}; do web-crawler & done
+web-crawler

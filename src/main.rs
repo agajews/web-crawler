@@ -14,16 +14,18 @@ use std::time::{Instant, Duration};
 use std::env;
 use web_index::{Meta, Index};
 use rand;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::fs;
 use uuid::Uuid;
 use rand::seq::SliceRandom;
 use std::thread::sleep;
+use std::fs::OpenOptions;
+use hex;
 
 // variables to set:
 // URL_BLOCK_DIR - directory for pending url blocks
 // URL_CLAIMED_BLOCK_DIR - directory for claimed url blocks
-// SEEN_URL_PATH - path to shared sled database of seen urls
+// SEEN_URL_DIR - path to directory of seen urls
 // META_DIR - directory of metadata databases
 // INDEX_DIR - directory of document indexes
 
@@ -80,23 +82,8 @@ struct DocStats {
     links: Option<Vec<String>>,
 }
 
-struct UrlSet {
-    db: sled::Db,
-}
-
-impl UrlSet {
-    pub fn new<P: AsRef<Path>>(filename: P) -> Option<Self> {
-        Some(Self { db: sled::open(filename).ok()? })
-    }
-
-    fn try_insert(&self, url: &str) -> bool {
-        let key = serialize(url).unwrap();
-        self.db.insert(key, &[]).unwrap().is_none()
-    }
-}
-
 lazy_static! {
-    static ref SEEN: UrlSet = UrlSet::new(&env::var("SEEN_URL_PATH").unwrap());
+    static ref SEEN_DIR: PathBuf = PathBuf::from(env::var("SEEN_URL_DIR").unwrap());
     static ref META: Meta = Meta::new(PathBuf::from(env::var("META_DIR").unwrap()).join(Uuid::new_v4().to_string()));
     static ref INDEX: Index = Index::new(PathBuf::from(env::var("INDEX_DIR").unwrap()).join(Uuid::new_v4().to_string()));
 }
@@ -132,22 +119,6 @@ fn crawl(id: u32, url: String) -> Option<DocStats> {
     return Some(DocStats {id, url, terms, n_terms, links: Some(links)})
 }
 
-// fn acquire_seen_db() -> UrlSet {
-//     loop {
-//         match UrlSet::new(&env::var("SEEN_URL_PATH").unwrap()) {
-//             Some(seen) => {
-//                 println!("got seen db!");
-//                 break seen
-//             },
-//             None => {
-//                 sleep(Duration::from_millis(1000));
-//                 println!("waiting for seen db...");
-//                 continue
-//             },
-//         }
-//     }
-// }
-
 fn crawl_block(urls: Vec<String>, start_id: u32) {
     let n_urls = urls.len();
     let urls_and_ids: Vec<(String, u32)> = urls
@@ -164,17 +135,14 @@ fn crawl_block(urls: Vec<String>, start_id: u32) {
         .filter_map(|x| x)
         .collect();
 
-    {
-        // let seen = acquire_seen_db();
-        document_stats.iter()
-            .filter_map(|stats| stats.links.clone())
-            .flatten()
-            .filter(|link| SEEN.try_insert(link))
-            .collect::<Vec<String>>()
-            .chunks(URL_BLOCK_SIZE)
-            .map(Vec::from)
-            .for_each(write_block);
-    }
+    document_stats.iter()
+        .filter_map(|stats| stats.links.clone())
+        .flatten()
+        .filter(|link| try_claim(link))
+        .collect::<Vec<String>>()
+        .chunks(URL_BLOCK_SIZE)
+        .map(Vec::from)
+        .for_each(write_block);
 
     for stats in &document_stats {
         META.insert(stats.id, (stats.n_terms, stats.url.clone()));
@@ -214,13 +182,21 @@ fn claim_block() -> Vec<String> {
     deserialize(&data).unwrap()
 }
 
+fn try_claim(url: &str) -> bool {
+    let path = SEEN_DIR.join(hex::encode(url));
+    let res = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path);
+    res.is_ok()
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let mut id = 0;
     let root_urls: Vec<String> = {
-        // let seen = acquire_seen_db();
         vec!["https://columbia.edu", "https://harvard.edu", "https://stanford.edu", "https://www.cam.ac.uk"]
             .into_iter()
-            .filter(|url| SEEN.try_insert(url))
+            .filter(|url| try_claim(url))
             .map(String::from)
             .collect()
     };
