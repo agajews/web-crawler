@@ -27,6 +27,8 @@ use std::thread::sleep;
 // META_DIR - directory of metadata databases
 // INDEX_DIR - directory of document indexes
 
+const URL_BLOCK_SIZE: usize = 100;
+
 lazy_static! {
     static ref ACADEMIC_RE: Regex = Regex::new(r".+\.(edu|ac\.??)").unwrap();
 }
@@ -150,7 +152,7 @@ fn crawl_block(urls: Vec<String>, start_id: u32) {
         .flatten()
         .for_each(|link| {
             frontier.push(link);
-            if frontier.len() == 1000 {
+            if frontier.len() == URL_BLOCK_SIZE {
                 write_block(&frontier);
                 frontier.clear();
             }
@@ -181,6 +183,7 @@ fn claim_block() -> Vec<String> {
         .map(|res| res.unwrap().path())
         .collect();
     if blocks.is_empty() {
+        println!("no blocks to claim, waiting 1s...");
         sleep(Duration::from_millis(1000));
         return claim_block();
     }
@@ -195,12 +198,25 @@ fn claim_block() -> Vec<String> {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let mut id = 0;
+    let root_urls: Vec<String> =
+        vec!["https://columbia.edu", "https://harvard.edu", "https://stanford.edu", "https://www.cam.ac.uk"]
+        .into_iter()
+        .filter(|url| SEEN.try_insert(url))
+        .map(String::from)
+        .collect();
+
+    let n_root_urls = root_urls.len() as u32;
+    let start = Instant::now();
+    crawl_block(root_urls, id);
+    id += n_root_urls;
+    println!("finished root block in {:?}", start.elapsed());
+
     loop {
         let block = claim_block();
         let start = Instant::now();
         let block_size = block.len() as u32;
         crawl_block(block, id);
         id += block_size;
-        println!("finished block in {:?}s, at id {}", start.elapsed(), id);
+        println!("finished block in {:?}, at id {}", start.elapsed(), id);
     }
 }
