@@ -27,7 +27,7 @@ use std::thread::sleep;
 // META_DIR - directory of metadata databases
 // INDEX_DIR - directory of document indexes
 
-const URL_BLOCK_SIZE: usize = 100;
+const URL_BLOCK_SIZE: usize = 1000;
 
 lazy_static! {
     static ref ACADEMIC_RE: Regex = Regex::new(r".+\.(edu|ac\.??)").unwrap();
