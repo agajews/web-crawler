@@ -149,17 +149,13 @@ fn crawl_block(urls: Vec<String>, start_id: u32) {
         .filter_map(|x| x)
         .collect();
 
-    let mut frontier = Vec::new();
     document_stats.iter()
         .filter_map(|stats| stats.links.clone())
         .flatten()
-        .for_each(|link| {
-            frontier.push(link);
-            if frontier.len() == URL_BLOCK_SIZE {
-                write_block(&frontier);
-                frontier.clear();
-            }
-        });
+        .collect::<Vec<String>>()
+        .chunks(URL_BLOCK_SIZE)
+        .map(Vec::from)
+        .for_each(write_block);
 
     for stats in &document_stats {
         META.insert(stats.id, (stats.n_terms, stats.url.clone()));
@@ -172,7 +168,7 @@ fn crawl_block(urls: Vec<String>, start_id: u32) {
     }
 }
 
-fn write_block(data: &Vec<String>) {
+fn write_block(data: Vec<String>) {
     let block_dir = PathBuf::from(env::var("URL_BLOCK_DIR").unwrap());
     let filename = block_dir.join(Uuid::new_v4().to_string());
     fs::write(filename, serialize(&data).unwrap()).unwrap();
