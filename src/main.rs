@@ -55,6 +55,9 @@ fn tokenize(document: &Document) -> Vec<String> {
     }
 
     tokens
+        .into_iter()
+        .filter(|t| t.len() > 0)
+        .collect()
 }
 
 fn count_terms(document: &Document) -> Vec<(String, u32)> {
