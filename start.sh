@@ -1,5 +1,7 @@
 #!/bin/bash
 
+WEB_CRAWLER=./target/release/web-crawler
+
 mkdir $CRAWLER_FS/url-block-dir
 export URL_BLOCK_DIR=$CRAWLER_FS/url-block-dir
 
@@ -14,4 +16,5 @@ export INDEX_DIR=$CRAWLER_FS/url-indexes
 
 export SEEN_URL_PATH=$CRAWLER_FS/seen-urls.sled
 
-web-crawler
+for i in {1..7}; do $WEB_CRAWLER & done
+$WEB_CRAWLER

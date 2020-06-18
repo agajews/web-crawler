@@ -27,7 +27,7 @@ use std::thread::sleep;
 // META_DIR - directory of metadata databases
 // INDEX_DIR - directory of document indexes
 
-const URL_BLOCK_SIZE: usize = 1000;
+const URL_BLOCK_SIZE: usize = 100;
 
 lazy_static! {
     static ref ACADEMIC_RE: Regex = Regex::new(r".+\.(edu|ac\.??)").unwrap();
@@ -96,6 +96,7 @@ impl UrlSet {
 }
 
 lazy_static! {
+    static ref SEEN: UrlSet = UrlSet::new(&env::var("SEEN_URL_PATH").unwrap());
     static ref META: Meta = Meta::new(PathBuf::from(env::var("META_DIR").unwrap()).join(Uuid::new_v4().to_string()));
     static ref INDEX: Index = Index::new(PathBuf::from(env::var("INDEX_DIR").unwrap()).join(Uuid::new_v4().to_string()));
 }
@@ -120,27 +121,32 @@ fn crawl(id: u32, url: String) -> Option<DocStats> {
         return Some(DocStats {id, url, terms, n_terms, links: None})
     }
 
-    let seen = acquire_seen_db();
     let links = document
         .find(Name("a"))
         .filter_map(|node| node.attr("href"))
         .filter_map(|href| source_url.join(href).ok())
         .filter(|href| href.scheme().starts_with("http"))
         .map(Url::into_string)
-        .filter(|link| seen.try_insert(link))
         .collect();
 
     return Some(DocStats {id, url, terms, n_terms, links: Some(links)})
 }
 
-fn acquire_seen_db() -> UrlSet {
-    loop {
-        match UrlSet::new(&env::var("SEEN_URL_PATH").unwrap()) {
-            Some(seen) => break seen,
-            None => { sleep(Duration::from_millis(10)); continue },
-        }
-    }
-}
+// fn acquire_seen_db() -> UrlSet {
+//     loop {
+//         match UrlSet::new(&env::var("SEEN_URL_PATH").unwrap()) {
+//             Some(seen) => {
+//                 println!("got seen db!");
+//                 break seen
+//             },
+//             None => {
+//                 sleep(Duration::from_millis(1000));
+//                 println!("waiting for seen db...");
+//                 continue
+//             },
+//         }
+//     }
+// }
 
 fn crawl_block(urls: Vec<String>, start_id: u32) {
     let n_urls = urls.len();
@@ -158,13 +164,17 @@ fn crawl_block(urls: Vec<String>, start_id: u32) {
         .filter_map(|x| x)
         .collect();
 
-    document_stats.iter()
-        .filter_map(|stats| stats.links.clone())
-        .flatten()
-        .collect::<Vec<String>>()
-        .chunks(URL_BLOCK_SIZE)
-        .map(Vec::from)
-        .for_each(write_block);
+    {
+        // let seen = acquire_seen_db();
+        document_stats.iter()
+            .filter_map(|stats| stats.links.clone())
+            .flatten()
+            .filter(|link| SEEN.try_insert(link))
+            .collect::<Vec<String>>()
+            .chunks(URL_BLOCK_SIZE)
+            .map(Vec::from)
+            .for_each(write_block);
+    }
 
     for stats in &document_stats {
         META.insert(stats.id, (stats.n_terms, stats.url.clone()));
@@ -207,10 +217,10 @@ fn claim_block() -> Vec<String> {
 fn main() -> Result<(), Box<dyn Error>> {
     let mut id = 0;
     let root_urls: Vec<String> = {
-        let seen = acquire_seen_db();
+        // let seen = acquire_seen_db();
         vec!["https://columbia.edu", "https://harvard.edu", "https://stanford.edu", "https://www.cam.ac.uk"]
             .into_iter()
-            .filter(|url| seen.try_insert(url))
+            .filter(|url| SEEN.try_insert(url))
             .map(String::from)
             .collect()
     };
@@ -223,6 +233,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     loop {
         let block = claim_block();
+        println!("starting to work on new block");
         let start = Instant::now();
         let block_size = block.len() as u32;
         crawl_block(block, id);
