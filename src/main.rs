@@ -85,8 +85,8 @@ struct UrlSet {
 }
 
 impl UrlSet {
-    pub fn new<P: AsRef<Path>>(filename: P) -> Self {
-        Self { db: sled::open(filename).unwrap() }
+    pub fn new<P: AsRef<Path>>(filename: P) -> Option<Self> {
+        Some(Self { db: sled::open(filename).ok()? })
     }
 
     fn try_insert(&self, url: &str) -> bool {
@@ -96,7 +96,6 @@ impl UrlSet {
 }
 
 lazy_static! {
-    static ref SEEN: UrlSet = UrlSet::new(&env::var("SEEN_URL_PATH").unwrap());
     static ref META: Meta = Meta::new(PathBuf::from(env::var("META_DIR").unwrap()).join(Uuid::new_v4().to_string()));
     static ref INDEX: Index = Index::new(PathBuf::from(env::var("INDEX_DIR").unwrap()).join(Uuid::new_v4().to_string()));
 }
@@ -121,16 +120,26 @@ fn crawl(id: u32, url: String) -> Option<DocStats> {
         return Some(DocStats {id, url, terms, n_terms, links: None})
     }
 
+    let seen = acquire_seen_db();
     let links = document
         .find(Name("a"))
         .filter_map(|node| node.attr("href"))
         .filter_map(|href| source_url.join(href).ok())
         .filter(|href| href.scheme().starts_with("http"))
         .map(Url::into_string)
-        .filter(|link| SEEN.try_insert(link))
+        .filter(|link| seen.try_insert(link))
         .collect();
 
     return Some(DocStats {id, url, terms, n_terms, links: Some(links)})
+}
+
+fn acquire_seen_db() -> UrlSet {
+    loop {
+        match UrlSet::new(&env::var("SEEN_URL_PATH").unwrap()) {
+            Some(seen) => break seen,
+            None => { sleep(Duration::from_millis(10)); continue },
+        }
+    }
 }
 
 fn crawl_block(urls: Vec<String>, start_id: u32) {
@@ -197,12 +206,14 @@ fn claim_block() -> Vec<String> {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let mut id = 0;
-    let root_urls: Vec<String> =
+    let root_urls: Vec<String> = {
+        let seen = acquire_seen_db();
         vec!["https://columbia.edu", "https://harvard.edu", "https://stanford.edu", "https://www.cam.ac.uk"]
-        .into_iter()
-        .filter(|url| SEEN.try_insert(url))
-        .map(String::from)
-        .collect();
+            .into_iter()
+            .filter(|url| seen.try_insert(url))
+            .map(String::from)
+            .collect()
+    };
 
     let n_root_urls = root_urls.len() as u32;
     let start = Instant::now();
