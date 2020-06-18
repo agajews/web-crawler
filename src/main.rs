@@ -9,11 +9,23 @@ use select::predicate::Name;
 use regex::Regex;
 use url::Url;
 use std::collections::BTreeMap;
-use bincode::serialize;
-use s3::bucket::Bucket;
-use awscreds::Credentials;
-use awsregion::Region;
-use std::time::Instant;
+use bincode::{serialize, deserialize};
+use std::time::{Instant, Duration};
+use std::env;
+use web_index::{Meta, Index};
+use rand;
+use std::path::{Path, PathBuf};
+use std::fs;
+use uuid::Uuid;
+use rand::seq::SliceRandom;
+use std::thread::sleep;
+
+// variables to set:
+// URL_BLOCK_DIR - directory for pending url blocks
+// URL_CLAIMED_BLOCK_DIR - directory for claimed url blocks
+// SEEN_URL_PATH - path to shared sled database of seen urls
+// META_DIR - directory of metadata databases
+// INDEX_DIR - directory of document indexes
 
 lazy_static! {
     static ref ACADEMIC_RE: Regex = Regex::new(r".+\.(edu|ac\.??)").unwrap();
@@ -36,7 +48,7 @@ fn tokenize(document: &Document) -> Vec<String> {
         .collect();
 
     for token in &mut tokens {
-        token.retain(|s| s.is_ascii());
+        token.retain(|c| c.is_ascii_alphabetic());
         token.make_ascii_lowercase();
     }
 
@@ -63,7 +75,28 @@ struct DocStats {
     links: Option<Vec<String>>,
 }
 
-fn crawl(url: String, id: u32) -> Option<DocStats> {
+struct UrlSet {
+    db: sled::Db,
+}
+
+impl UrlSet {
+    pub fn new<P: AsRef<Path>>(filename: P) -> Self {
+        Self { db: sled::open(filename).unwrap() }
+    }
+
+    fn try_insert(&self, url: &str) -> bool {
+        let key = serialize(url).unwrap();
+        self.db.insert(key, &[]).unwrap().is_none()
+    }
+}
+
+lazy_static! {
+    static ref SEEN: UrlSet = UrlSet::new(&env::var("SEEN_URL_PATH").unwrap());
+    static ref META: Meta = Meta::new(PathBuf::from(env::var("META_DIR").unwrap()).join(Uuid::new_v4().to_string()));
+    static ref INDEX: Index = Index::new(PathBuf::from(env::var("INDEX_DIR").unwrap()).join(Uuid::new_v4().to_string()));
+}
+
+fn crawl(id: u32, url: String) -> Option<DocStats> {
     let client = Client::builder()
         .user_agent("Rustbot/0.1")
         .build().unwrap();
@@ -89,92 +122,85 @@ fn crawl(url: String, id: u32) -> Option<DocStats> {
         .filter_map(|href| source_url.join(href).ok())
         .filter(|href| href.scheme().starts_with("http"))
         .map(Url::into_string)
+        .filter(|link| SEEN.try_insert(link))
         .collect();
 
     return Some(DocStats {id, url, terms, n_terms, links: Some(links)})
 }
 
-fn crawl_block(urls: Vec<String>, ids: Vec<u32>, block_id: u32) -> (Vec<String>, u32) {
+fn crawl_block(urls: Vec<String>, start_id: u32) {
     let n_urls = urls.len();
     let urls_and_ids: Vec<(String, u32)> = urls
         .into_iter()
-        .zip(ids)
+        .zip(start_id..(start_id + n_urls as u32))
         .collect();
 
-    let mut document_stats: Vec<DocStats> = urls_and_ids
+    let document_stats: Vec<DocStats> = urls_and_ids
         .into_par_iter()
-        .map(|(url, id)| crawl(url, id))
+        .map(|(url, id)| match crawl(id, url.clone()) {
+            Some(stats) => Some(stats),
+            None => { println!("error crawling {}", url); None },
+        })
         .filter_map(|x| x)
         .collect();
 
-    let mut links = Vec::new();
-    for stats in &mut document_stats {
-        if let Some(doc_links) = &mut stats.links {
-            links.append(doc_links);
-        }
-    }
+    let mut frontier = Vec::new();
+    document_stats.iter()
+        .filter_map(|stats| stats.links.clone())
+        .flatten()
+        .for_each(|link| {
+            frontier.push(link);
+            if frontier.len() == 1000 {
+                write_block(&frontier);
+                frontier.clear();
+            }
+        });
 
-    for link in &links {
-        println!("{}", link);
-    }
-
-    let mut docmeta: BTreeMap<u32, (u32, String)> = BTreeMap::new();
     for stats in &document_stats {
-        docmeta.insert(stats.id, (stats.n_terms, stats.url.clone()));
+        META.insert(stats.id, (stats.n_terms, stats.url.clone()));
     }
 
-    let err_count = (n_urls - document_stats.len()) as u32;
-
-    let mut index: BTreeMap<String, Vec<(u32, u32)>> = BTreeMap::new();
     for stats in document_stats {
         for (term, count) in stats.terms {
-            if let Some(postings) = index.get_mut(&term) {
-                postings.push((stats.id, count));
-            } else {
-                index.insert(term, vec![(stats.id, count)]);
-            }
+            INDEX.insert(&term, (stats.id, count));
         }
     }
+}
 
-    let credentials = Credentials::default_blocking().unwrap();
+fn write_block(data: &Vec<String>) {
+    let block_dir = PathBuf::from(env::var("URL_BLOCK_DIR").unwrap());
+    let filename = block_dir.join(Uuid::new_v4().to_string());
+    fs::write(filename, serialize(&data).unwrap()).unwrap();
+}
 
-    let index_bucket = Bucket::new("web-crawler-index", Region::UsEast1, credentials.clone()).unwrap();
-    let index_bytes = serialize(&index).expect("could not serialize");
-    index_bucket.put_object_blocking(block_id.to_string(), &index_bytes, "text/plain").unwrap();
-
-    let meta_bucket = Bucket::new("web-crawler-meta", Region::UsEast1, credentials.clone()).unwrap();
-    let meta_bytes = serialize(&docmeta).expect("could not serialize");
-    meta_bucket.put_object_blocking(block_id.to_string(), &meta_bytes, "text/plain").unwrap();
-
-    (links, err_count)
+fn claim_block() -> Vec<String> {
+    let block_dir = PathBuf::from(env::var("URL_BLOCK_DIR").unwrap());
+    let claimed_block_dir = PathBuf::from(env::var("URL_CLAIMED_BLOCK_DIR").unwrap());
+    let blocks: Vec<PathBuf> = fs::read_dir(block_dir)
+        .unwrap()
+        .map(|res| res.unwrap().path())
+        .collect();
+    if blocks.is_empty() {
+        sleep(Duration::from_millis(1000));
+        return claim_block();
+    }
+    let block = blocks.choose(&mut rand::thread_rng()).unwrap();
+    let claimed_block = claimed_block_dir.join(Uuid::new_v4().to_string());
+    if let Err(_) = fs::rename(block, &claimed_block) {
+        return claim_block();  // try again
+    }
+    let data = fs::read(claimed_block).unwrap();
+    deserialize(&data).unwrap()
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let mut id_start = 0;
-    let mut id_end = 4;
-    let ids = (id_start..id_end).collect();
-    let urls: Vec<String> = vec!["https://columbia.edu", "https://harvard.edu", "https://stanford.edu", "https://www.cam.ac.uk"]
-        .into_iter()
-        .map(String::from)
-        .collect();
-
-    let start = Instant::now();
-    let (links, _err_count) = crawl_block(urls, ids, 0);
-    println!("{:?} urls/sec", (id_end - id_start) as f64 / start.elapsed().as_secs() as f64);
-
-    id_start = id_end;
-    id_end = id_start + links.len() as u32;
-    let ids = (id_start..id_end).collect();
-    let start = Instant::now();
-    let (mut links, _err_count) = crawl_block(links, ids, 1);
-    println!("{:?} urls/sec", (id_end - id_start) as f64 / start.elapsed().as_secs() as f64);
-
-    links = links[0..1000].to_vec();
-    id_start = id_end;
-    id_end = id_start + links.len() as u32;
-    let ids = (id_start..id_end).collect();
-    let (_links, _err_count) = crawl_block(links, ids, 2);
-    println!("{:?} urls/sec", (id_end - id_start) as f64 / start.elapsed().as_secs() as f64);
-
-    Ok(())
+    let mut id = 0;
+    loop {
+        let block = claim_block();
+        let start = Instant::now();
+        let block_size = block.len() as u32;
+        crawl_block(block, id);
+        id += block_size;
+        println!("finished block in {:?}s, at id {}", start.elapsed(), id);
+    }
 }
