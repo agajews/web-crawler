@@ -80,7 +80,7 @@ fn count_terms(
 fn add_links(
     source: &Url,
     document: &Document,
-    global: &Injector<String>,
+    local: &Worker<String>,
     seen: &cbloom::Filter,
 ) {
     document
@@ -94,7 +94,7 @@ fn add_links(
             let h = hash64(&url);
             if !seen.maybe_contains(h) {
                 seen.insert(h);
-                global.push(url);
+                local.push(url);
             }
         });
 }
@@ -105,7 +105,7 @@ fn crawl_url(
     client: &Client,
     meta: &Meta,
     index: &Index,
-    global: &Injector<String>,
+    local: &Worker<String>,
     seen: &cbloom::Filter,
 ) -> Result<(), Box<dyn Error>>{
     let res = client.get(url)
@@ -126,7 +126,7 @@ fn crawl_url(
 
     let source = Url::parse(&url)?;
     if is_academic(&source) {
-        add_links(&source, &document, &global, &seen);
+        add_links(&source, &document, &local, &seen);
     }
 
     Ok(())
@@ -175,6 +175,8 @@ fn find_task<T>(
         iter::repeat_with(|| {
             // Try stealing a batch of tasks from the global queue.
             global.steal_batch_and_pop(local)
+                // Or try stealing a task from one of the other threads.
+                .or_else(|| stealers.iter().map(|s| s.steal()).collect())
         })
         // Loop while no task was stolen and any steal operation needs to be retried.
         .find(|s| !s.is_retry())
