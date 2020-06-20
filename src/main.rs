@@ -102,10 +102,10 @@ fn add_links(
 
 fn crawl_url(
     url: &str,
-    id: u32,
+    _id: u32,
     client: &Client,
-    meta: &mut BTreeMap<u32, (u32, String)>,
-    index: &mut BTreeMap<String, (u32, u32)>,
+    _meta: &mut BTreeMap<u32, (u32, String)>,
+    _index: &mut BTreeMap<String, (u32, u32)>,
     local: &Worker<String>,
     seen: &cbloom::Filter,
 ) -> Result<(), Box<dyn Error>>{
@@ -115,15 +115,15 @@ fn crawl_url(
     let document = Document::from(res.as_str());
     let mut terms = BTreeMap::new();
     count_terms(&document, &mut terms);
-    let n_terms = terms
-        .iter()
-        .map(|(_term, count)| count)
-        .sum();
+    // let n_terms = terms
+    //     .iter()
+    //     .map(|(_term, count)| count)
+    //     .sum();
 
-    meta.insert(id, (n_terms, String::from(url)));
-    for (term, count) in terms {
-        index.insert(term, (id, count));
-    }
+    // meta.insert(id, (n_terms, String::from(url)));
+    // for (term, count) in terms {
+    //     index.insert(term, (id, count));
+    // }
 
     let source = Url::parse(&url)?;
     if is_academic(&source) {
