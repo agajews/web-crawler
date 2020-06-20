@@ -156,7 +156,7 @@ fn crawler(
     let urls = iter::repeat_with(|| find_task(&local, &global, &stealers))
         .filter_map(|url| url);
     for (id, url) in urls.enumerate() {
-        let res = crawl_url(&url, id as u32, &client, &meta, &index, &global, &seen);
+        let res = crawl_url(&url, id as u32, &client, &meta, &index, &local, &seen);
         if let Err(err) = res {
             println!("error crawling {}: {:?}", url, err);
         }
@@ -167,7 +167,7 @@ fn crawler(
 fn find_task<T>(
     local: &Worker<T>,
     global: &Injector<T>,
-    _stealers: &[Stealer<T>],
+    stealers: &[Stealer<T>],
 ) -> Option<T> {
     // Pop a task from the local queue, if not empty.
     local.pop().or_else(|| {
