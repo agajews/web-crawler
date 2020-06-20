@@ -2,6 +2,7 @@ use crossbeam::deque::{Injector, Stealer, Worker};
 use lazy_static::lazy_static;
 use std::error::Error;
 use reqwest::blocking::Client;
+use reqwest::redirect::Policy;
 use select::document::Document;
 use select::predicate::Name;
 use url::Url;
@@ -150,6 +151,7 @@ fn crawler(
         .user_agent("Rustbot/0.1")
         .danger_accept_invalid_certs(true)
         .danger_accept_invalid_hostnames(true)
+        .redirect(Policy::limited(100))
         .build().unwrap();
     let urls = iter::repeat_with(|| find_task(&local, &global, &stealers))
         .filter_map(|url| url);
