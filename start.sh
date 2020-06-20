@@ -17,5 +17,4 @@ export INDEX_DIR=$CRAWLER_FS/url-indexes
 mkdir $CRAWLER_FS/seen-urls
 export SEEN_URL_DIR=$CRAWLER_FS/seen-urls
 
-for i in {1..5}; do web-crawler & done
-web-crawler
+for i in {1..300}; do $WEB_CRAWLER & done

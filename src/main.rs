@@ -88,10 +88,7 @@ lazy_static! {
     static ref INDEX: Index = Index::new(PathBuf::from(env::var("INDEX_DIR").unwrap()).join(Uuid::new_v4().to_string()));
 }
 
-fn crawl(id: u32, url: String) -> Option<DocStats> {
-    let client = Client::builder()
-        .user_agent("Rustbot/0.1")
-        .build().unwrap();
+fn crawl(id: u32, url: String, client: Client) -> Option<DocStats> {
     let res = client.get(&url)
         .send().ok()?
         .text().ok()?;
@@ -120,15 +117,18 @@ fn crawl(id: u32, url: String) -> Option<DocStats> {
 }
 
 fn crawl_block(urls: Vec<String>, start_id: u32) {
-    let n_urls = urls.len();
-    let urls_and_ids: Vec<(String, u32)> = urls
-        .into_iter()
-        .zip(start_id..(start_id + n_urls as u32))
-        .collect();
+    let client = Client::builder()
+        .user_agent("Rustbot/0.1")
+        .build().unwrap();
 
-    let document_stats: Vec<DocStats> = urls_and_ids
+    let mut args = Vec::new();
+    for (i, url) in urls.into_iter().enumerate() {
+        args.push((start_id + i as u32, url, client.clone()));
+    }
+
+    let document_stats: Vec<DocStats> = args
         .into_par_iter()
-        .map(|(url, id)| match crawl(id, url.clone()) {
+        .map(|(id, url, client)| match crawl(id, url.clone(), client) {
             Some(stats) => Some(stats),
             None => { println!("error crawling {}", url); None },
         })
