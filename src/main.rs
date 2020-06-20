@@ -88,6 +88,7 @@ fn add_links(
         .filter_map(|node| node.attr("href"))
         .filter_map(|href| source.join(href).ok())
         .filter(|href| href.scheme().starts_with("http"))
+        .filter(is_academic)
         .for_each(|mut url| {
             url.set_fragment(None);
             let url = url.into_string();
