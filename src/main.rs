@@ -165,10 +165,11 @@ fn crawler(
 }
 
 fn find_task<T>(
-    local: &Worker<T>,
+    _local: &Worker<T>,
     global: &Injector<T>,
     _stealers: &[Stealer<T>],
 ) -> Option<T> {
+    global.steal().success()
     // Pop a task from the local queue, if not empty.
     // local.pop().or_else(|| {
     //     // Otherwise, we need to look for a task elsewhere.
@@ -183,7 +184,7 @@ fn find_task<T>(
     //     // Extract the stolen task, if there is one.
     //     .and_then(|s| s.success())
     // })
-    local.pop().or_else(|| global.steal_batch_and_pop(local).success())
+    // local.pop().or_else(|| global.steal_batch_and_pop(local).success())
 }
 
 fn main() {
