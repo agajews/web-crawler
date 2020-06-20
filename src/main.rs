@@ -148,6 +148,8 @@ fn crawler(
     );
     let client = Client::builder()
         .user_agent("Rustbot/0.1")
+        .danger_accept_invalid_certs(true)
+        .danger_accept_invalid_hostnames(true)
         .build().unwrap();
     let urls = iter::repeat_with(|| find_task(&local, &global, &stealers))
         .filter_map(|url| url);
