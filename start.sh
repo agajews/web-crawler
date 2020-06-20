@@ -18,3 +18,4 @@ mkdir $CRAWLER_FS/seen-urls
 export SEEN_URL_DIR=$CRAWLER_FS/seen-urls
 
 for i in {1..300}; do $WEB_CRAWLER & done
+$WEB_CRAWLER
