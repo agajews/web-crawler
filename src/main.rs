@@ -171,6 +171,7 @@ fn find_task<T>(
 ) -> Option<T> {
     // Pop a task from the local queue, if not empty.
     local.pop().or_else(|| {
+        println!("waiting for work...");
         // Otherwise, we need to look for a task elsewhere.
         iter::repeat_with(|| {
             // Try stealing a batch of tasks from the global queue.
