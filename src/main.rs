@@ -12,10 +12,10 @@ use std::sync::Arc;
 use std::env;
 use std::collections::BTreeMap;
 use regex::Regex;
-use uuid::Uuid;
-use std::path::PathBuf;
+// use uuid::Uuid;
+// use std::path::PathBuf;
 use core::sync::atomic::{AtomicUsize, Ordering};
-use web_index::{Meta, Index};
+// use web_index::{Meta, Index};
 use std::time::Duration;
 use cbloom;
 use fasthash::metro::hash64;
@@ -103,8 +103,8 @@ fn crawl_url(
     url: &str,
     id: u32,
     client: &Client,
-    meta: &Meta,
-    index: &Index,
+    meta: &mut BTreeMap<u32, (u32, String)>,
+    index: &mut BTreeMap<String, (u32, u32)>,
     local: &Worker<String>,
     seen: &cbloom::Filter,
 ) -> Result<(), Box<dyn Error>>{
@@ -121,7 +121,7 @@ fn crawl_url(
 
     meta.insert(id, (n_terms, String::from(url)));
     for (term, count) in terms {
-        index.insert(&term, (id, count));
+        index.insert(term, (id, count));
     }
 
     let source = Url::parse(&url)?;
@@ -139,14 +139,8 @@ fn crawler(
     seen: Arc<cbloom::Filter>,
     url_counter: Arc<AtomicUsize>,
 ) {
-    let meta = Meta::new(
-        PathBuf::from(env::var("META_DIR").unwrap())
-        .join(Uuid::new_v4().to_string())
-    );
-    let index = Index::new(
-        PathBuf::from(env::var("INDEX_DIR").unwrap())
-        .join(Uuid::new_v4().to_string())
-    );
+    let mut meta = BTreeMap::new();
+    let mut index = BTreeMap::new();
     let client = Client::builder()
         .user_agent("Rustbot/0.1")
         .danger_accept_invalid_certs(true)
@@ -156,7 +150,7 @@ fn crawler(
     let urls = iter::repeat_with(|| find_task(&local, &global, &stealers))
         .filter_map(|url| url);
     for (id, url) in urls.enumerate() {
-        let res = crawl_url(&url, id as u32, &client, &meta, &index, &local, &seen);
+        let res = crawl_url(&url, id as u32, &client, &mut meta, &mut index, &local, &seen);
         if let Err(err) = res {
             println!("error crawling {}: {:?}", url, err);
         }
