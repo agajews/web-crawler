@@ -114,6 +114,7 @@ async fn crawl_url(
     local: Arc<Mutex<Worker<String>>>,
     seen: &cbloom::Filter,
 ) -> Result<(), Box<dyn Error>> {
+    // TODO: parse uri first
     let head = client.head(url).send().await?;
     let headers = head.headers();
     if let Some(content_type) = headers.get("Content-Type") {
@@ -157,6 +158,7 @@ async fn crawler(
     stealers: Vec<Stealer<String>>,
     seen: Arc<cbloom::Filter>,
     url_counter: Arc<AtomicUsize>,
+    err_counter: Arc<AtomicUsize>,
 ) {
     let mut meta = BTreeMap::new();
     let mut index = BTreeMap::new();
@@ -184,6 +186,7 @@ async fn crawler(
         }
         if let Err(_err) = res {
             // println!("error crawling {}: {:?}", url, err);
+            err_counter.fetch_add(1, Ordering::Relaxed);
         }
         url_counter.fetch_add(1, Ordering::Relaxed);
     }
@@ -216,6 +219,7 @@ fn find_task<T>(
 #[tokio::main]
 async fn main() {
     let url_counter = Arc::new(AtomicUsize::new(0));
+    let err_counter = Arc::new(AtomicUsize::new(0));
     let n_threads: usize = env::args()
         .collect::<Vec<String>>()
         [1]
@@ -236,15 +240,21 @@ async fn main() {
         let global = global.clone();
         let stealers = stealers.clone();
         let url_counter = url_counter.clone();
+        let err_counter = err_counter.clone();
         let seen = seen.clone();
-        tokio::spawn(async move { crawler(tid, local, global, stealers, seen, url_counter).await })
+        tokio::spawn(async move { crawler(tid, local, global, stealers, seen, url_counter, err_counter).await })
     }).collect::<Vec<_>>();
 
     let mut old_count = url_counter.load(Ordering::Relaxed);
+    let mut old_err = err_counter.load(Ordering::Relaxed);
     loop {
         thread::sleep(Duration::from_millis(1000));
         let new_count = url_counter.load(Ordering::Relaxed);
-        println!("{} urls/s", new_count - old_count);
+        let new_err = err_counter.load(Ordering::Relaxed);
+        println!("{} urls/s, {}% errs",
+                 new_count - old_count,
+                 (new_err - old_err + 1) as f32 / (new_count - old_count) as f32 * 100.0);
         old_count = new_count;
+        old_err = new_err;
     }
 }
