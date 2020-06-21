@@ -1,8 +1,8 @@
 use crossbeam::deque::{Injector, Stealer, Worker};
 use lazy_static::lazy_static;
 use std::error::Error;
-use std::io;
-use std::io::ErrorKind;
+// use std::io;
+// use std::io::ErrorKind;
 use reqwest::Client;
 use reqwest::redirect::Policy;
 use select::document::Document;
@@ -119,7 +119,8 @@ async fn crawl_url(
     if let Some(content_type) = headers.get("Content-Type") {
         let content_type = content_type.to_str()?;
         if !content_type.starts_with("text/html") {
-            return Err(Box::new(io::Error::new(ErrorKind::Other, format!("not HTML, content-type: {}", content_type))));
+            // return Err(Box::new(io::Error::new(ErrorKind::Other, format!("not HTML, content-type: {}", content_type))));
+            return Ok(());
         }
     }
 
