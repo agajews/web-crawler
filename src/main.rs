@@ -99,12 +99,14 @@ fn add_links(
         .filter(is_academic)
         .for_each(|mut url| {
             url.set_fragment(None);
-            let url = url.into_string();
-            let h = hash64(&url);
+            let h = hash64(url.as_str());
             if !seen.maybe_contains(h) {
                 seen.insert(h);
-                let local = &locals[h as usize % locals.len()];
-                local.push(url);
+                if let Some(host) = url.host_str() {
+                    let d = hash64(&host);
+                    let local = &locals[d as usize % locals.len()];
+                    local.push(url.into_string());
+                }
             }
         });
 }
