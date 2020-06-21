@@ -179,7 +179,7 @@ async fn crawler(
         .danger_accept_invalid_certs(true)
         .danger_accept_invalid_hostnames(true)
         .redirect(Policy::limited(100))
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(10))
         .build().unwrap();
     for id in 0.. {
         let url = loop {
