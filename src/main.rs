@@ -23,6 +23,8 @@ use cbloom;
 use fasthash::metro::hash64;
 use tokio;
 use tokio::task::yield_now;
+use rand;
+use rand::seq::SliceRandom;
 
 // variables to set:
 // META_DIR - directory of metadata databases
@@ -84,11 +86,11 @@ fn count_terms(
 fn add_links(
     source: &Url,
     document: &Document,
-    local: Arc<Mutex<Worker<String>>>,
+    local: Arc<Mutex<Vec<Worker<String>>>>,
     seen: &cbloom::Filter,
 ) {
     // TODO: link loops
-    let local = local.lock().unwrap();
+    let locals = local.lock().unwrap();
     document
         .find(Name("a"))
         .filter_map(|node| node.attr("href"))
@@ -101,6 +103,7 @@ fn add_links(
             let h = hash64(&url);
             if !seen.maybe_contains(h) {
                 seen.insert(h);
+                let local = &locals[h as usize % locals.len()];
                 local.push(url);
             }
         });
@@ -112,7 +115,7 @@ async fn crawl_url(
     client: &Client,
     _meta: &mut BTreeMap<u32, (u32, String)>,
     _index: &mut BTreeMap<String, (u32, u32)>,
-    local: Arc<Mutex<Worker<String>>>,
+    locals: Arc<Mutex<Vec<Worker<String>>>>,
     seen: &cbloom::Filter,
 ) -> Result<(), Box<dyn Error>> {
     // TODO: parse uri first
@@ -146,7 +149,7 @@ async fn crawl_url(
 
     let source = Url::parse(&url)?;
     if is_academic(&source) {
-        add_links(&source, &document, local, &seen);
+        add_links(&source, &document, locals, &seen);
     }
 
     Ok(())
@@ -154,7 +157,7 @@ async fn crawl_url(
 
 async fn crawler(
     tid: usize,
-    local: Arc<Mutex<Worker<String>>>,
+    locals: Arc<Mutex<Vec<Worker<String>>>>,
     global: Arc<Injector<String>>,
     stealers: Vec<Stealer<String>>,
     seen: Arc<cbloom::Filter>,
@@ -172,7 +175,7 @@ async fn crawler(
         .build().unwrap();
     for id in 0.. {
         let url = loop {
-            let task = find_task(&local.lock().unwrap(), &global, &stealers);
+            let task = find_task(&locals.lock().unwrap(), &global, &stealers);
             match task {
                 Some(url) => break url,
                 None => yield_now().await,
@@ -181,7 +184,7 @@ async fn crawler(
         if tid < 10 {
             println!("thread {} crawling {}...", tid, url);
         }
-        let res = crawl_url(&url, id as u32, &client, &mut meta, &mut index, local.clone(), &seen).await;
+        let res = crawl_url(&url, id as u32, &client, &mut meta, &mut index, locals.clone(), &seen).await;
         if tid < 10 {
             println!("thread {} finished {}...", tid, url);
         }
@@ -197,11 +200,12 @@ async fn crawler(
 }
 
 fn find_task<T>(
-    local: &Worker<T>,
+    locals: &[Worker<T>],
     global: &Injector<T>,
     stealers: &[Stealer<T>],
 ) -> Option<T> {
     // Pop a task from the local queue, if not empty.
+    let local = locals.choose(&mut rand::thread_rng()).unwrap();
     local.pop().or_else(|| {
         // println!("waiting for work...");
         // Otherwise, we need to look for a task elsewhere.
@@ -219,29 +223,31 @@ fn find_task<T>(
 async fn main() {
     let url_counter = Arc::new(AtomicUsize::new(0));
     let err_counter = Arc::new(AtomicUsize::new(0));
-    let n_threads: usize = env::args()
-        .collect::<Vec<String>>()
-        [1]
-        .parse().unwrap();
+    let args = env::args().collect::<Vec<_>>();
+    let n_threads: usize = args[1].parse().unwrap();
+    let n_queues: usize = args[2].parse().unwrap();
     let global = Arc::new(Injector::new());
     let seen = Arc::new(cbloom::Filter::new(BLOOM_BYTES, EST_URLS));
     for url in &ROOT_SET {
         global.push(String::from(*url));
     }
-    let workers = iter::repeat_with(|| Worker::new_fifo())
-        .take(n_threads)
-        .collect::<Vec<_>>();
+    let workers = iter::repeat_with(|| {
+        iter::repeat_with(|| Worker::new_fifo())
+            .take(n_queues)
+            .collect::<Vec<_>>()
+    }).take(n_threads).collect::<Vec<_>>();
     let stealers = workers.iter()
+        .flatten()
         .map(|w| w.stealer())
         .collect::<Vec<_>>();
-    let _threads = workers.into_iter().enumerate().map(|(tid, local)| {
-        let local = Arc::new(Mutex::new(local));
+    let _threads = workers.into_iter().enumerate().map(|(tid, locals)| {
+        let locals = Arc::new(Mutex::new(locals));
         let global = global.clone();
         let stealers = stealers.clone();
         let url_counter = url_counter.clone();
         let err_counter = err_counter.clone();
         let seen = seen.clone();
-        tokio::spawn(async move { crawler(tid, local, global, stealers, seen, url_counter, err_counter).await })
+        tokio::spawn(async move { crawler(tid, locals, global, stealers, seen, url_counter, err_counter).await })
     }).collect::<Vec<_>>();
 
     println!("finished spawning threads");

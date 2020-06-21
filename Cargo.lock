@@ -1958,6 +1958,7 @@ dependencies = [
  "crossbeam",
  "fasthash",
  "lazy_static",
+ "rand 0.7.3",
  "rayon",
  "regex",
  "reqwest",
