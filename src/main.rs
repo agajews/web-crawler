@@ -213,12 +213,13 @@ fn find_task<T>(
     stealers: &[Stealer<T>],
 ) -> Option<T> {
     // Pop a task from the local queue, if not empty.
-    let local = locals.choose(&mut rand::thread_rng()).unwrap();
-    local.pop().or_else(|| {
+    let nonempty = locals.iter().filter(|w| !w.is_empty()).collect::<Vec<_>>();
+    let local = nonempty.choose(&mut rand::thread_rng());
+    local.and_then(|l| l.pop()).or_else(|| {
         // println!("waiting for work...");
         // Otherwise, we need to look for a task elsewhere.
         // Try stealing a batch of tasks from the global queue.
-        global.steal_batch_and_pop(local)
+        global.steal_batch_and_pop(&locals[0])
             // Or try stealing a task from one of the other threads.
             .or_else(|| {
                 let stealer = stealers.choose(&mut rand::thread_rng()).unwrap();
