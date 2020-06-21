@@ -1,6 +1,8 @@
 use crossbeam::deque::{Injector, Stealer, Worker};
 use lazy_static::lazy_static;
 use std::error::Error;
+use std::io;
+use std::io::ErrorKind;
 use reqwest::blocking::Client;
 use reqwest::redirect::Policy;
 use select::document::Document;
@@ -109,6 +111,15 @@ fn crawl_url(
     local: &Worker<String>,
     seen: &cbloom::Filter,
 ) -> Result<(), Box<dyn Error>>{
+    let head = client.head(url).send()?;
+    let headers = head.headers();
+    if let Some(content_type) = headers.get("Content-Type") {
+        let content_type = content_type.to_str()?;
+        if !content_type.starts_with("text/html") {
+            return Err(Box::new(io::Error::new(ErrorKind::Other, format!("not HTML, content-type: {}", content_type))));
+        }
+    }
+
     let res = client.get(url)
         .send()?
         .text()?;
@@ -148,7 +159,7 @@ fn crawler(
         .danger_accept_invalid_certs(true)
         .danger_accept_invalid_hostnames(true)
         .redirect(Policy::limited(100))
-        .timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(30))
         .build().unwrap();
     let urls = iter::repeat_with(|| find_task(&local, &global, &stealers))
         .filter_map(|url| url);

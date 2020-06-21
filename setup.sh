@@ -4,8 +4,8 @@ sudo yum install -y gcc gcc-c++ pkg-config openssl-devel git
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source $HOME/.cargo/env
 cargo build --release
-sudo su -c 'echo "	*	soft	nofile	20000" >> /etc/security/limits.conf'
-sudo su -c 'echo "	*	hard	nofile	20000" >> /etc/security/limits.conf'
+sudo su -c 'echo "	*	soft	nofile	200000" >> /etc/security/limits.conf'
+sudo su -c 'echo "	*	hard	nofile	200000" >> /etc/security/limits.conf'
 sudo su -c "sed -i 's/4096/unlimited/g' /etc/security/limits.d/20-nproc.conf"
 
 mkdir /tmp/crawler-meta /tmp/crawler-index
