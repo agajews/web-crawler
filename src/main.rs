@@ -1,4 +1,4 @@
-use crossbeam::deque::{Injector, Stealer, Worker};
+use crossbeam::deque::{Injector, Stealer, Worker, Steal};
 use lazy_static::lazy_static;
 use std::error::Error;
 // use std::io;
@@ -24,6 +24,7 @@ use fasthash::metro::hash64;
 use tokio;
 use tokio::task::yield_now;
 use rand;
+use rand::Rng;
 use rand::seq::SliceRandom;
 use http::Uri;
 
@@ -212,6 +213,11 @@ fn find_task<T>(
     global: &Injector<T>,
     stealers: &[Stealer<T>],
 ) -> Option<T> {
+    if rand::thread_rng().gen::<f32>() < 0.01 {
+        let nonempty = stealers.iter().filter(|w| !w.is_empty()).collect::<Vec<_>>();
+        let stealer = nonempty.choose(&mut rand::thread_rng());
+        return stealer.and_then(|s| s.steal().success());
+    }
     // Pop a task from the local queue, if not empty.
     let nonempty = locals.iter().filter(|w| !w.is_empty()).collect::<Vec<_>>();
     let local = nonempty.choose(&mut rand::thread_rng());
@@ -222,8 +228,9 @@ fn find_task<T>(
         global.steal_batch_and_pop(&locals[0])
             // Or try stealing a task from one of the other threads.
             .or_else(|| {
-                let stealer = stealers.choose(&mut rand::thread_rng()).unwrap();
-                stealer.steal()
+                let nonempty = stealers.iter().filter(|w| !w.is_empty()).collect::<Vec<_>>();
+                let stealer = nonempty.choose(&mut rand::thread_rng());
+                stealer.map(|s| s.steal()).unwrap_or(Steal::Empty)
             })
             .success()
         // Loop while no task was stolen and any steal operation needs to be retried.
