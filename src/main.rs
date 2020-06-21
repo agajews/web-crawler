@@ -87,6 +87,7 @@ fn add_links(
     local: Arc<Mutex<Worker<String>>>,
     seen: &cbloom::Filter,
 ) {
+    // TODO: link loops
     let local = local.lock().unwrap();
     document
         .find(Name("a"))
@@ -169,6 +170,7 @@ async fn crawler(
         .redirect(Policy::limited(100))
         .timeout(Duration::from_secs(100))
         .build().unwrap();
+    yield_now().await;
     for id in 0.. {
         let url = loop {
             let task = find_task(&local.lock().unwrap(), &global, &stealers);
