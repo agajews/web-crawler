@@ -1957,6 +1957,7 @@ dependencies = [
  "cbloom",
  "crossbeam",
  "fasthash",
+ "http",
  "lazy_static",
  "rand 0.7.3",
  "rayon",

@@ -25,6 +25,7 @@ use tokio;
 use tokio::task::yield_now;
 use rand;
 use rand::seq::SliceRandom;
+use http::Uri;
 
 // variables to set:
 // META_DIR - directory of metadata databases
@@ -41,7 +42,7 @@ const BLOOM_BYTES: usize = 10_000_000_000;
 const EST_URLS: usize = 1_000_000_000;
 
 lazy_static! {
-    static ref ACADEMIC_RE: Regex = Regex::new(r".+\.(edu|ac\.??)").unwrap();
+    static ref ACADEMIC_RE: Regex = Regex::new(r"^.+\.(edu|ac\.??)$").unwrap();
 }
 
 fn is_academic(url: &Url) -> bool {
@@ -120,7 +121,7 @@ async fn crawl_url(
     locals: Arc<Mutex<Vec<Worker<String>>>>,
     seen: &cbloom::Filter,
 ) -> Result<(), Box<dyn Error>> {
-    // TODO: parse uri first
+    url.parse::<Uri>()?;
     let head = client.head(url).send().await?;
     let headers = head.headers();
     if let Some(content_type) = headers.get("Content-Type") {

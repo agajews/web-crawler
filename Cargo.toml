@@ -22,3 +22,4 @@ cbloom = "0.1.3"
 fasthash = "0.4.0"
 tokio = { version = "0.2", features = ["macros"] }
 rand = "0.7.3"
+http = "0.2.1"
