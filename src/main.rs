@@ -170,7 +170,6 @@ async fn crawler(
         .redirect(Policy::limited(100))
         .timeout(Duration::from_secs(100))
         .build().unwrap();
-    yield_now().await;
     for id in 0.. {
         let url = loop {
             let task = find_task(&local.lock().unwrap(), &global, &stealers);
@@ -245,6 +244,7 @@ async fn main() {
         tokio::spawn(async move { crawler(tid, local, global, stealers, seen, url_counter, err_counter).await })
     }).collect::<Vec<_>>();
 
+    println!("finished spawning threads");
     let mut old_count = url_counter.load(Ordering::Relaxed);
     let mut old_err = err_counter.load(Ordering::Relaxed);
     loop {
