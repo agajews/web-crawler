@@ -3,14 +3,14 @@ use lazy_static::lazy_static;
 use std::error::Error;
 use std::io;
 use std::io::ErrorKind;
-use reqwest::blocking::Client;
+use reqwest::Client;
 use reqwest::redirect::Policy;
 use select::document::Document;
 use select::predicate::Name;
 use url::Url;
 use std::iter;
 use std::thread;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::env;
 use std::collections::BTreeMap;
 use regex::Regex;
@@ -21,6 +21,7 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use cbloom;
 use fasthash::metro::hash64;
+use tokio;
 
 // variables to set:
 // META_DIR - directory of metadata databases
@@ -82,9 +83,10 @@ fn count_terms(
 fn add_links(
     source: &Url,
     document: &Document,
-    local: &Worker<String>,
+    local: Arc<Mutex<Worker<String>>>,
     seen: &cbloom::Filter,
 ) {
+    let local = local.lock().unwrap();
     document
         .find(Name("a"))
         .filter_map(|node| node.attr("href"))
@@ -102,16 +104,16 @@ fn add_links(
         });
 }
 
-fn crawl_url(
+async fn crawl_url(
     url: &str,
     _id: u32,
     client: &Client,
     _meta: &mut BTreeMap<u32, (u32, String)>,
     _index: &mut BTreeMap<String, (u32, u32)>,
-    local: &Worker<String>,
+    local: Arc<Mutex<Worker<String>>>,
     seen: &cbloom::Filter,
-) -> Result<(), Box<dyn Error>>{
-    let head = client.head(url).send()?;
+) -> Result<(), Box<dyn Error>> {
+    let head = client.head(url).send().await?;
     let headers = head.headers();
     if let Some(content_type) = headers.get("Content-Type") {
         let content_type = content_type.to_str()?;
@@ -121,8 +123,10 @@ fn crawl_url(
     }
 
     let res = client.get(url)
-        .send()?
-        .text()?;
+        .send()
+        .await?
+        .text()
+        .await?;
     let document = Document::from(res.as_str());
     let mut terms = BTreeMap::new();
     count_terms(&document, &mut terms);
@@ -138,15 +142,15 @@ fn crawl_url(
 
     let source = Url::parse(&url)?;
     if is_academic(&source) {
-        add_links(&source, &document, &local, &seen);
+        add_links(&source, &document, local, &seen);
     }
 
     Ok(())
 }
 
-fn crawler(
+async fn crawler(
     tid: usize,
-    local: Worker<String>,
+    local: Arc<Mutex<Worker<String>>>,
     global: Arc<Injector<String>>,
     stealers: Vec<Stealer<String>>,
     seen: Arc<cbloom::Filter>,
@@ -161,13 +165,13 @@ fn crawler(
         .redirect(Policy::limited(100))
         .timeout(Duration::from_secs(30))
         .build().unwrap();
-    let urls = iter::repeat_with(|| find_task(&local, &global, &stealers))
+    let urls = iter::repeat_with(|| find_task(&local.lock().unwrap(), &global, &stealers))
         .filter_map(|url| url);
     for (id, url) in urls.enumerate() {
         if tid < 10 {
             println!("thread {} crawling {}...", tid, url);
         }
-        let _res = crawl_url(&url, id as u32, &client, &mut meta, &mut index, &local, &seen);
+        let _res = crawl_url(&url, id as u32, &client, &mut meta, &mut index, local.clone(), &seen).await;
         if tid < 10 {
             println!("thread {} finished {}...", tid, url);
         }
@@ -202,7 +206,8 @@ fn find_task<T>(
     // local.pop().or_else(|| global.steal_batch_and_pop(local).success())
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let url_counter = Arc::new(AtomicUsize::new(0));
     let n_threads: usize = env::args()
         .collect::<Vec<String>>()
@@ -220,11 +225,12 @@ fn main() {
         .map(|w| w.stealer())
         .collect::<Vec<_>>();
     let _threads = workers.into_iter().enumerate().map(|(tid, local)| {
+        let local = Arc::new(Mutex::new(local));
         let global = global.clone();
         let stealers = stealers.clone();
         let url_counter = url_counter.clone();
         let seen = seen.clone();
-        thread::spawn(move || crawler(tid, local, global, stealers, seen, url_counter))
+        tokio::spawn(async move { crawler(tid, local, global, stealers, seen, url_counter).await })
     }).collect::<Vec<_>>();
 
     let mut old_count = url_counter.load(Ordering::Relaxed);
