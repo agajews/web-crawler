@@ -22,6 +22,7 @@ use std::time::Duration;
 use cbloom;
 use fasthash::metro::hash64;
 use tokio;
+use tokio::task::yield_now;
 
 // variables to set:
 // META_DIR - directory of metadata databases
@@ -165,9 +166,14 @@ async fn crawler(
         .redirect(Policy::limited(100))
         .timeout(Duration::from_secs(30))
         .build().unwrap();
-    let urls = iter::repeat_with(|| find_task(&local.lock().unwrap(), &global, &stealers))
-        .filter_map(|url| url);
-    for (id, url) in urls.enumerate() {
+    for id in 0.. {
+        let url = loop {
+            let task = find_task(&local.lock().unwrap(), &global, &stealers);
+            match task {
+                Some(url) => break url,
+                None => yield_now().await,
+            };
+        };
         if tid < 10 {
             println!("thread {} crawling {}...", tid, url);
         }
