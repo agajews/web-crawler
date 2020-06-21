@@ -167,13 +167,13 @@ fn crawler(
         if tid < 10 {
             println!("thread {} crawling {}...", tid, url);
         }
-        let res = crawl_url(&url, id as u32, &client, &mut meta, &mut index, &local, &seen);
+        let _res = crawl_url(&url, id as u32, &client, &mut meta, &mut index, &local, &seen);
         if tid < 10 {
             println!("thread {} finished {}...", tid, url);
         }
-        if let Err(err) = res {
-            println!("error crawling {}: {:?}", url, err);
-        }
+        // if let Err(err) = res {
+        //     println!("error crawling {}: {:?}", url, err);
+        // }
         url_counter.fetch_add(1, Ordering::Relaxed);
     }
     println!("all done!");
