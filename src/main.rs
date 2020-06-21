@@ -184,8 +184,10 @@ async fn crawler(
         if tid < 10 {
             println!("thread {} finished {}...", tid, url);
         }
-        if let Err(_err) = res {
-            // println!("error crawling {}: {:?}", url, err);
+        if let Err(err) = res {
+            if tid < 10 {
+                println!("error crawling {}: {:?}", url, err);
+            }
             err_counter.fetch_add(1, Ordering::Relaxed);
         }
         url_counter.fetch_add(1, Ordering::Relaxed);
