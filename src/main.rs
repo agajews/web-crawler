@@ -89,6 +89,7 @@ fn add_links(
     document: &Document,
     local: Arc<Mutex<Vec<Worker<String>>>>,
     seen: &cbloom::Filter,
+    total_counter: Arc<AtomicUsize>,
 ) {
     // TODO: link loops
     let locals = local.lock().unwrap();
@@ -107,6 +108,7 @@ fn add_links(
                     let d = hash64(&host);
                     let local = &locals[d as usize % locals.len()];
                     local.push(url.into_string());
+                    total_counter.fetch_add(1, Ordering::Relaxed);
                 }
             }
         });
@@ -120,6 +122,7 @@ async fn crawl_url(
     _index: &mut BTreeMap<String, (u32, u32)>,
     locals: Arc<Mutex<Vec<Worker<String>>>>,
     seen: &cbloom::Filter,
+    total_counter: Arc<AtomicUsize>,
 ) -> Result<(), Box<dyn Error>> {
     url.parse::<Uri>()?;
     let head = client.head(url).send().await?;
@@ -152,7 +155,7 @@ async fn crawl_url(
 
     let source = Url::parse(&url)?;
     if is_academic(&source) {
-        add_links(&source, &document, locals, &seen);
+        add_links(&source, &document, locals, &seen, total_counter);
     }
 
     Ok(())
@@ -164,6 +167,7 @@ async fn crawler(
     global: Arc<Injector<String>>,
     stealers: Vec<Stealer<String>>,
     seen: Arc<cbloom::Filter>,
+    total_counter: Arc<AtomicUsize>,
     url_counter: Arc<AtomicUsize>,
     err_counter: Arc<AtomicUsize>,
 ) {
@@ -187,7 +191,7 @@ async fn crawler(
         if tid < 10 {
             println!("thread {} crawling {}...", tid, url);
         }
-        let res = crawl_url(&url, id as u32, &client, &mut meta, &mut index, locals.clone(), &seen).await;
+        let res = crawl_url(&url, id as u32, &client, &mut meta, &mut index, locals.clone(), &seen, total_counter.clone()).await;
         if tid < 10 {
             println!("thread {} finished {}...", tid, url);
         }
@@ -224,6 +228,7 @@ fn find_task<T>(
 
 #[tokio::main]
 async fn main() {
+    let total_counter = Arc::new(AtomicUsize::new(0));
     let url_counter = Arc::new(AtomicUsize::new(0));
     let err_counter = Arc::new(AtomicUsize::new(0));
     let args = env::args().collect::<Vec<_>>();
@@ -247,10 +252,11 @@ async fn main() {
         let locals = Arc::new(Mutex::new(locals));
         let global = global.clone();
         let stealers = stealers.clone();
+        let total_counter = total_counter.clone();
         let url_counter = url_counter.clone();
         let err_counter = err_counter.clone();
         let seen = seen.clone();
-        tokio::spawn(async move { crawler(tid, locals, global, stealers, seen, url_counter, err_counter).await })
+        tokio::spawn(async move { crawler(tid, locals, global, stealers, seen, total_counter, url_counter, err_counter).await })
     }).collect::<Vec<_>>();
 
     println!("finished spawning threads");
@@ -258,11 +264,16 @@ async fn main() {
     let mut old_err = err_counter.load(Ordering::Relaxed);
     loop {
         thread::sleep(Duration::from_millis(1000));
+        let new_total = total_counter.load(Ordering::Relaxed);
         let new_count = url_counter.load(Ordering::Relaxed);
         let new_err = err_counter.load(Ordering::Relaxed);
-        println!("{} urls/s, {}% errs",
-                 new_count - old_count,
-                 (new_err - old_err + 1) as f32 / (new_count - old_count) as f32 * 100.0);
+        println!(
+            "{} urls/s, {}% errs, crawled {}, seen {}",
+             new_count - old_count,
+             (new_err - old_err + 1) as f32 / (new_count - old_count) as f32 * 100.0,
+             new_count,
+             new_total,
+         );
         old_count = new_count;
         old_err = new_err;
     }
