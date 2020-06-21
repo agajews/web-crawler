@@ -134,6 +134,7 @@ fn crawl_url(
 }
 
 fn crawler(
+    tid: usize,
     local: Worker<String>,
     global: Arc<Injector<String>>,
     stealers: Vec<Stealer<String>>,
@@ -151,7 +152,13 @@ fn crawler(
     let urls = iter::repeat_with(|| find_task(&local, &global, &stealers))
         .filter_map(|url| url);
     for (id, url) in urls.enumerate() {
+        if tid < 10 {
+            println!("thread {} crawling {}...", tid, url);
+        }
         let res = crawl_url(&url, id as u32, &client, &mut meta, &mut index, &local, &seen);
+        if tid < 10 {
+            println!("thread {} finished {}...", tid, url);
+        }
         if let Err(err) = res {
             println!("error crawling {}: {:?}", url, err);
         }
@@ -200,12 +207,12 @@ fn main() {
     let stealers = workers.iter()
         .map(|w| w.stealer())
         .collect::<Vec<_>>();
-    let _threads = workers.into_iter().map(|local| {
+    let _threads = workers.into_iter().enumerate().map(|(tid, local)| {
         let global = global.clone();
         let stealers = stealers.clone();
         let url_counter = url_counter.clone();
         let seen = seen.clone();
-        thread::spawn(move || crawler(local, global, stealers, seen, url_counter))
+        thread::spawn(move || crawler(tid, local, global, stealers, seen, url_counter))
     }).collect::<Vec<_>>();
 
     let mut old_count = url_counter.load(Ordering::Relaxed);
