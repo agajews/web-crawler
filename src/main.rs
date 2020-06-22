@@ -247,6 +247,7 @@ fn find_task<T>(
 async fn url_monitor(total_counter: Arc<AtomicUsize>, url_counter: Arc<AtomicUsize>, err_counter: Arc<AtomicUsize>) {
     let mut old_count = url_counter.load(Ordering::Relaxed);
     let mut old_err = err_counter.load(Ordering::Relaxed);
+    println!("monitoring crawl rate");
     loop {
         thread::sleep(Duration::from_millis(1000));
         let new_total = total_counter.load(Ordering::Relaxed);
