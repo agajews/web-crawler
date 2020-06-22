@@ -251,6 +251,7 @@ async fn main() {
     let args = env::args().collect::<Vec<_>>();
     let n_threads: usize = args[1].parse().unwrap();
     let n_queues: usize = args[2].parse().unwrap();
+    let n_os_threads: usize = args[3].parse().unwrap();
     let global = Arc::new(Injector::new());
     let seen = Arc::new(cbloom::Filter::new(BLOOM_BYTES, EST_URLS));
     for url in &ROOT_SET {
@@ -265,6 +266,10 @@ async fn main() {
         .flatten()
         .map(|w| w.stealer())
         .collect::<Vec<_>>();
+    let mut rt = tokio::runtime::Builder::new()
+        .core_threads(n_os_threads)
+        .build()
+        .unwrap();
     let _threads = workers.into_iter().enumerate().map(|(tid, locals)| {
         let locals = Arc::new(Mutex::new(locals));
         let global = global.clone();
@@ -273,7 +278,7 @@ async fn main() {
         let url_counter = url_counter.clone();
         let err_counter = err_counter.clone();
         let seen = seen.clone();
-        tokio::spawn(async move { crawler(tid, locals, global, stealers, seen, total_counter, url_counter, err_counter).await })
+        rt.spawn(async move { crawler(tid, locals, global, stealers, seen, total_counter, url_counter, err_counter).await })
     }).collect::<Vec<_>>();
 
     println!("finished spawning threads");

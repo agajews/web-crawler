@@ -16,8 +16,10 @@ sudo su -c "echo 'net.ipv4.tcp_window_scaling = 1' >> /etc/sysctl.conf"
 sudo su -c "echo 'net.ipv4.tcp_timestamps = 1' >> /etc/sysctl.conf"
 sudo su -c "echo 'net.ipv4.tcp_sack = 1' >> /etc/sysctl.conf"
 sudo su -c "echo 'net.ipv4.tcp_no_metrics_save = 1' >> /etc/sysctl.conf"
-sudo su -c "echo 'net.core.netdev_max_backlog = 5000' >> /etc/sysctl.conf"
+sudo su -c "echo 'net.core.netdev_max_backlog = 20000' >> /etc/sysctl.conf"
 sudo sysctl -p
+sudo ifconfig txqueuelen 10000
+sudo ethtool -G eth0 rx 16384
 
 mkdir /tmp/crawler-meta /tmp/crawler-index
 export META_DIR=/tmp/crawler-meta INDEX_DIR=/tmp/crawler-index
