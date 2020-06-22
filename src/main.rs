@@ -47,9 +47,9 @@ lazy_static! {
     static ref LINK_RE: Regex = Regex::new("href=['\"][^'\"]+['\"]").unwrap();
 }
 
-fn is_academic(url: &Url) -> bool {
+fn is_academic(url: &Url, academic_re: &Regex) -> bool {
     url.domain()
-        .map(|domain| ACADEMIC_RE.is_match(domain))
+        .map(|domain| academic_re.is_match(domain))
         .unwrap_or(false)
 }
 
@@ -91,6 +91,8 @@ fn add_links(
     document: &str,
     local: Arc<Mutex<Vec<Worker<String>>>>,
     seen: &cbloom::Filter,
+    academic_re: &Regex,
+    link_re: &Regex,
     total_counter: Arc<AtomicUsize>,
 ) {
     // TODO: link loops
@@ -101,11 +103,11 @@ fn add_links(
     //     .filter_map(|href| source.join(href).ok())
     //     .filter(|href| href.scheme().starts_with("http"))
     //     .filter(is_academic);
-    let links = LINK_RE.find_iter(document)
+    let links = link_re.find_iter(document)
         .map(|m| m.as_str())
         .map(|s| &s[6..s.len() - 1])
         .filter_map(|href| source.join(href).ok())
-        .filter(is_academic);
+        .filter(|url| is_academic(url, academic_re));
     for mut url in links {
         url.set_fragment(None);
         let h = hash64(url.as_str());
@@ -129,6 +131,8 @@ async fn crawl_url(
     _index: &mut BTreeMap<String, (u32, u32)>,
     locals: Arc<Mutex<Vec<Worker<String>>>>,
     seen: &cbloom::Filter,
+    academic_re: &Regex,
+    link_re: &Regex,
     total_counter: Arc<AtomicUsize>,
 ) -> Result<(), Box<dyn Error>> {
     url.parse::<Uri>()?;
@@ -162,8 +166,8 @@ async fn crawl_url(
     // }
 
     let source = Url::parse(&url)?;
-    if is_academic(&source) {
-        add_links(&source, res.as_str(), locals, &seen, total_counter);
+    if is_academic(&source, academic_re) {
+        add_links(&source, res.as_str(), locals, seen, academic_re, link_re, total_counter);
     }
 
     Ok(())
@@ -188,6 +192,8 @@ async fn crawler(
         .redirect(Policy::limited(100))
         .timeout(Duration::from_secs(10))
         .build().unwrap();
+    let academic_re = ACADEMIC_RE.clone();
+    let link_re = LINK_RE.clone();
 
     for id in 0.. {
         let url = loop {
@@ -200,7 +206,7 @@ async fn crawler(
         // if tid < 10 {
         //     println!("thread {} crawling {}...", tid, url);
         // }
-        let res = crawl_url(&url, id as u32, &client, &mut meta, &mut index, locals.clone(), &seen, total_counter.clone()).await;
+        let res = crawl_url(&url, id as u32, &client, &mut meta, &mut index, locals.clone(), &seen, &academic_re, &link_re, total_counter.clone()).await;
         // if tid < 10 {
         //     let n_empty = locals.lock().unwrap().iter().filter(|w| w.is_empty()).count();
         //     println!("thread {} finished {}, empty queues: {}", tid, url, n_empty);

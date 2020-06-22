@@ -23,7 +23,7 @@ sudo su -c "echo 'net.core.netdev_max_backlog = 20000' >> /etc/sysctl.conf"
 sudo sysctl -p
 sudo ifconfig eth0 txqueuelen 10000
 sudo ethtool -G eth0 rx 16384
-sudo su -c 'curl https://raw.githubusercontent.com/awslabs/aws-support-tools/master/EC2/AutomateDnsmasq/AutomateDnsmasq.sh | sed "s/cache-size=500/cache-size=5000\nmin-cache-ttl=3600/g" | sh'
+sudo su -c "curl https://raw.githubusercontent.com/awslabs/aws-support-tools/master/EC2/AutomateDnsmasq/AutomateDnsmasq.sh | sed 's/cache-size=500/cache-size=50000\nmin-cache-ttl=3600/g' | sed 's/127.0.0.1, \${NAMESERVER}/127.0.0.1/g' | sh"
 
 mkdir /tmp/crawler-meta /tmp/crawler-index
 export META_DIR=/tmp/crawler-meta INDEX_DIR=/tmp/crawler-index
