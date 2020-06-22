@@ -142,7 +142,7 @@ async fn crawl_url(
         }
     }
 
-    let res = client.get_async(url).await?.text()?;
+    let res = client.get_async(url).await?.text_async().await?;
     // let document = Document::from(res.as_str());
     // let mut terms = BTreeMap::new();
     // count_terms(&document, &mut terms);
