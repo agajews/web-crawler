@@ -244,6 +244,26 @@ fn find_task<T>(
     // local.pop().or_else(|| global.steal_batch_and_pop(local).success())
 }
 
+async fn url_monitor(total_counter: Arc<AtomicUsize>, url_counter: Arc<AtomicUsize>, err_counter: Arc<AtomicUsize>) {
+    let mut old_count = url_counter.load(Ordering::Relaxed);
+    let mut old_err = err_counter.load(Ordering::Relaxed);
+    loop {
+        thread::sleep(Duration::from_millis(1000));
+        let new_total = total_counter.load(Ordering::Relaxed);
+        let new_count = url_counter.load(Ordering::Relaxed);
+        let new_err = err_counter.load(Ordering::Relaxed);
+        println!(
+            "{} urls/s, {}% errs, crawled {}, seen {}",
+             new_count - old_count,
+             (new_err - old_err + 1) as f32 / (new_count - old_count) as f32 * 100.0,
+             new_count,
+             new_total,
+         );
+        old_count = new_count;
+        old_err = new_err;
+    }
+}
+
 fn main() {
     let total_counter = Arc::new(AtomicUsize::new(0));
     let url_counter = Arc::new(AtomicUsize::new(0));
@@ -266,7 +286,7 @@ fn main() {
         .flatten()
         .map(|w| w.stealer())
         .collect::<Vec<_>>();
-    let rt = tokio::runtime::Builder::new()
+    let mut rt = tokio::runtime::Builder::new()
         .threaded_scheduler()
         .enable_time()
         .enable_io()
@@ -274,9 +294,15 @@ fn main() {
         .max_threads(n_os_threads)
         .build()
         .unwrap();
+    let monitor_handle = {
+        let total_counter = total_counter.clone();
+        let url_counter = url_counter.clone();
+        let err_counter = err_counter.clone();
+        rt.spawn(async move { url_monitor(total_counter, url_counter, err_counter) })
+    };
     let _threads = workers.into_iter().enumerate().map(|(tid, locals)| {
-        if tid % 100 == 0 {
-            println!("spawned thread {}", tid);
+        if (tid + 1) % 100 == 0 {
+            println!("spawned thread {}", tid + 1);
             thread::sleep(Duration::from_secs(10));
         }
         let locals = Arc::new(Mutex::new(locals));
@@ -290,21 +316,5 @@ fn main() {
     }).collect::<Vec<_>>();
 
     println!("finished spawning threads");
-    let mut old_count = url_counter.load(Ordering::Relaxed);
-    let mut old_err = err_counter.load(Ordering::Relaxed);
-    loop {
-        thread::sleep(Duration::from_millis(1000));
-        let new_total = total_counter.load(Ordering::Relaxed);
-        let new_count = url_counter.load(Ordering::Relaxed);
-        let new_err = err_counter.load(Ordering::Relaxed);
-        println!(
-            "{} urls/s, {}% errs, crawled {}, seen {}",
-             new_count - old_count,
-             (new_err - old_err + 1) as f32 / (new_count - old_count) as f32 * 100.0,
-             new_count,
-             new_total,
-         );
-        old_count = new_count;
-        old_err = new_err;
-    }
+    let _res = rt.block_on(monitor_handle);
 }
