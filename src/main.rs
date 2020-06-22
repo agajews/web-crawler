@@ -275,6 +275,10 @@ fn main() {
         .build()
         .unwrap();
     let _threads = workers.into_iter().enumerate().map(|(tid, locals)| {
+        if tid % 100 == 0 {
+            println!("spawned thread {}", tid);
+            thread::sleep(Duration::from_secs(10));
+        }
         let locals = Arc::new(Mutex::new(locals));
         let global = global.clone();
         let stealers = stealers.clone();
