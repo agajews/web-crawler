@@ -7,8 +7,8 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 source $HOME/.cargo/env
 cargo build --release
 cargo install flamegraph
-sudo su -c 'echo "	*	soft	nofile	200000" >> /etc/security/limits.conf'
-sudo su -c 'echo "	*	hard	nofile	200000" >> /etc/security/limits.conf'
+sudo su -c 'echo "	*	soft	nofile	1000000" >> /etc/security/limits.conf'
+sudo su -c 'echo "	*	hard	nofile	1000000" >> /etc/security/limits.conf'
 sudo su -c "sed -i 's/4096/unlimited/g' /etc/security/limits.d/20-nproc.conf"
 
 sudo su -c "echo 'net.core.wmem_max=12582912' >> /etc/sysctl.conf"
