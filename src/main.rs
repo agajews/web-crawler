@@ -44,6 +44,7 @@ const EST_URLS: usize = 1_000_000_000;
 
 lazy_static! {
     static ref ACADEMIC_RE: Regex = Regex::new(r"^.+\.(edu|ac\.??)$").unwrap();
+    static ref LINK_RE: Regex = Regex::new(r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)").unwrap();
 }
 
 fn is_academic(url: &Url) -> bool {
@@ -87,32 +88,35 @@ fn count_terms(
 
 fn add_links(
     source: &Url,
-    document: &Document,
+    document: &str,
     local: Arc<Mutex<Vec<Worker<String>>>>,
     seen: &cbloom::Filter,
     total_counter: Arc<AtomicUsize>,
 ) {
     // TODO: link loops
     let locals = local.lock().unwrap();
-    document
-        .find(Name("a"))
-        .filter_map(|node| node.attr("href"))
-        .filter_map(|href| source.join(href).ok())
-        .filter(|href| href.scheme().starts_with("http"))
-        .filter(is_academic)
-        .for_each(|mut url| {
-            url.set_fragment(None);
-            let h = hash64(url.as_str());
-            if !seen.maybe_contains(h) {
-                seen.insert(h);
-                if let Some(host) = url.host_str() {
-                    let d = hash64(&host);
-                    let local = &locals[d as usize % locals.len()];
-                    local.push(url.into_string());
-                    total_counter.fetch_add(1, Ordering::Relaxed);
-                }
+    // let links = document
+    //     .find(Name("a"))
+    //     .filter_map(|node| node.attr("href"))
+    //     .filter_map(|href| source.join(href).ok())
+    //     .filter(|href| href.scheme().starts_with("http"))
+    //     .filter(is_academic);
+    let links = LINK_RE.find_iter(document)
+        .map(|m| m.as_str())
+        .filter_map(|href| source.join(href).ok());
+    for mut url in links {
+        url.set_fragment(None);
+        let h = hash64(url.as_str());
+        if !seen.maybe_contains(h) {
+            seen.insert(h);
+            if let Some(host) = url.host_str() {
+                let d = hash64(&host);
+                let local = &locals[d as usize % locals.len()];
+                local.push(url.into_string());
+                total_counter.fetch_add(1, Ordering::Relaxed);
             }
-        });
+        }
+    }
 }
 
 async fn crawl_url(
@@ -141,7 +145,7 @@ async fn crawl_url(
         .await?
         .text()
         .await?;
-    let document = Document::from(res.as_str());
+    // let document = Document::from(res.as_str());
     // let mut terms = BTreeMap::new();
     // count_terms(&document, &mut terms);
     // let n_terms = terms
@@ -156,7 +160,7 @@ async fn crawl_url(
 
     let source = Url::parse(&url)?;
     if is_academic(&source) {
-        add_links(&source, &document, locals, &seen, total_counter);
+        add_links(&source, res.as_str(), locals, &seen, total_counter);
     }
 
     Ok(())
