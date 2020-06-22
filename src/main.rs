@@ -44,7 +44,7 @@ const EST_URLS: usize = 1_000_000_000;
 
 lazy_static! {
     static ref ACADEMIC_RE: Regex = Regex::new(r"^.+\.(edu|ac\.??)$").unwrap();
-    static ref LINK_RE: Regex = Regex::new(r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)").unwrap();
+    static ref LINK_RE: Regex = Regex::new("href=['\"][^'\"]+['\"]").unwrap();
 }
 
 fn is_academic(url: &Url) -> bool {
@@ -103,6 +103,7 @@ fn add_links(
     //     .filter(is_academic);
     let links = LINK_RE.find_iter(document)
         .map(|m| m.as_str())
+        .map(|s| &s[5..s.len() - 1])
         .filter_map(|href| source.join(href).ok());
     for mut url in links {
         url.set_fragment(None);
