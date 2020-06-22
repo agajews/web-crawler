@@ -264,14 +264,15 @@ async fn url_monitor(total_counter: Arc<AtomicUsize>, url_counter: Arc<AtomicUsi
     }
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let total_counter = Arc::new(AtomicUsize::new(0));
     let url_counter = Arc::new(AtomicUsize::new(0));
     let err_counter = Arc::new(AtomicUsize::new(0));
     let args = env::args().collect::<Vec<_>>();
     let n_threads: usize = args[1].parse().unwrap();
     let n_queues: usize = args[2].parse().unwrap();
-    let n_os_threads: usize = args[3].parse().unwrap();
+    // let n_os_threads: usize = args[3].parse().unwrap();
     let global = Arc::new(Injector::new());
     let seen = Arc::new(cbloom::Filter::new(BLOOM_BYTES, EST_URLS));
     for url in &ROOT_SET {
@@ -286,19 +287,19 @@ fn main() {
         .flatten()
         .map(|w| w.stealer())
         .collect::<Vec<_>>();
-    let mut rt = tokio::runtime::Builder::new()
-        .threaded_scheduler()
-        .enable_time()
-        .enable_io()
-        .core_threads(n_os_threads)
-        .max_threads(n_os_threads)
-        .build()
-        .unwrap();
+    // let mut rt = tokio::runtime::Builder::new()
+    //     .threaded_scheduler()
+    //     .enable_time()
+    //     .enable_io()
+    //     .core_threads(n_os_threads)
+    //     .max_threads(n_os_threads)
+    //     .build()
+    //     .unwrap();
     let monitor_handle = {
         let total_counter = total_counter.clone();
         let url_counter = url_counter.clone();
         let err_counter = err_counter.clone();
-        rt.spawn(async move { url_monitor(total_counter, url_counter, err_counter) })
+        tokio::spawn(async move { url_monitor(total_counter, url_counter, err_counter) })
     };
     let _threads = workers.into_iter().enumerate().map(|(tid, locals)| {
         if (tid + 1) % 100 == 0 {
@@ -312,9 +313,9 @@ fn main() {
         let url_counter = url_counter.clone();
         let err_counter = err_counter.clone();
         let seen = seen.clone();
-        rt.spawn(async move { crawler(tid, locals, global, stealers, seen, total_counter, url_counter, err_counter).await })
+        tokio::spawn(async move { crawler(tid, locals, global, stealers, seen, total_counter, url_counter, err_counter).await })
     }).collect::<Vec<_>>();
 
     println!("finished spawning threads");
-    let _res = rt.block_on(monitor_handle);
+    let _res = tokio::join!(monitor_handle);
 }
