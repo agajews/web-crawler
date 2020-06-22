@@ -6,7 +6,7 @@ use std::error::Error;
 // use reqwest::Client;
 // use reqwest::redirect::Policy;
 use isahc::prelude::*;
-use isahc::config::{RedirectPolicy, DnsCache};
+use isahc::config::{RedirectPolicy, DnsCache, SslOption};
 // use select::document::Document;
 // use select::predicate::Name;
 use url::Url;
@@ -184,6 +184,7 @@ async fn crawler(
         ])
         .timeout(Duration::from_secs(10))
         .redirect_policy(RedirectPolicy::Limit(100))
+        .ssl_options(SslOption::DANGER_ACCEPT_INVALID_CERTS | SslOption::DANGER_ACCEPT_REVOKED_CERTS)
         .build()
         .unwrap();
     for id in 0.. {
