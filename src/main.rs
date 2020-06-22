@@ -43,7 +43,8 @@ const BLOOM_BYTES: usize = 10_000_000_000;
 const EST_URLS: usize = 1_000_000_000;
 
 lazy_static! {
-    static ref ACADEMIC_RE: Regex = Regex::new(r"^.+\.(edu|ac\.??)$").unwrap();
+    // static ref ACADEMIC_RE: Regex = Regex::new(r"^.+\.(edu|ac\.??)$").unwrap();
+    static ref ACADEMIC_RE: Regex = Regex::new(r"^columbia\.edu$").unwrap();
 }
 
 fn is_academic(url: &Url) -> bool {
@@ -99,7 +100,7 @@ fn add_links(
         .filter_map(|node| node.attr("href"))
         .filter_map(|href| source.join(href).ok())
         .filter(|href| href.scheme().starts_with("http"))
-        // .filter(is_academic)
+        .filter(is_academic)
         .for_each(|mut url| {
             url.set_fragment(None);
             let h = hash64(url.as_str());
