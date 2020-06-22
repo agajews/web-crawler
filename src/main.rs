@@ -300,7 +300,7 @@ async fn main() {
         let total_counter = total_counter.clone();
         let url_counter = url_counter.clone();
         let err_counter = err_counter.clone();
-        tokio::spawn(async move { url_monitor(total_counter, url_counter, err_counter) })
+        tokio::spawn(async move { url_monitor(total_counter, url_counter, err_counter).await })
     };
     let _threads = workers.into_iter().enumerate().map(|(tid, locals)| {
         if (tid + 1) % 100 == 0 {
