@@ -203,14 +203,14 @@ async fn crawler(
                 None => yield_now().await,
             };
         };
-        // if tid < 10 {
-        //     println!("thread {} crawling {}...", tid, url);
-        // }
+        if tid < 10 {
+            println!("thread {} crawling {}...", tid, url);
+        }
         let res = crawl_url(&url, id as u32, &client, &mut meta, &mut index, locals.clone(), &seen, &academic_re, &link_re, total_counter.clone()).await;
-        // if tid < 10 {
-        //     let n_empty = locals.lock().unwrap().iter().filter(|w| w.is_empty()).count();
-        //     println!("thread {} finished {}, empty queues: {}", tid, url, n_empty);
-        // }
+        if tid < 10 {
+            let n_empty = locals.lock().unwrap().iter().filter(|w| w.is_empty()).count();
+            println!("thread {} finished {}, empty queues: {}", tid, url, n_empty);
+        }
         if let Err(err) = res {
             if tid < 10 {
                 println!("error crawling {}: {:?}", url, err);
