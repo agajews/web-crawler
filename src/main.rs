@@ -3,10 +3,12 @@ use lazy_static::lazy_static;
 use std::error::Error;
 // use std::io;
 // use std::io::ErrorKind;
-use reqwest::Client;
-use reqwest::redirect::Policy;
-use select::document::Document;
-use select::predicate::Name;
+// use reqwest::Client;
+// use reqwest::redirect::Policy;
+use isahc::prelude::*;
+use isahc::config::{RedirectPolicy, DnsCache};
+// use select::document::Document;
+// use select::predicate::Name;
 use url::Url;
 use std::iter;
 use std::thread;
@@ -26,7 +28,6 @@ use tokio::task::yield_now;
 use rand;
 use rand::Rng;
 use rand::seq::SliceRandom;
-use http::Uri;
 
 // variables to set:
 // META_DIR - directory of metadata databases
@@ -53,38 +54,38 @@ fn is_academic(url: &Url) -> bool {
         .unwrap_or(false)
 }
 
-fn tokenize(document: &Document) -> Vec<String> {
-    let text = match document.find(Name("body")).next() {
-        Some(body) => body.text(),
-        None => String::from(""),
-    };
-    let mut tokens: Vec<String> = text.split_whitespace()
-        .map(String::from)
-        .collect();
+// fn tokenize(document: &Document) -> Vec<String> {
+//     let text = match document.find(Name("body")).next() {
+//         Some(body) => body.text(),
+//         None => String::from(""),
+//     };
+//     let mut tokens: Vec<String> = text.split_whitespace()
+//         .map(String::from)
+//         .collect();
 
-    for token in &mut tokens {
-        token.retain(|c| c.is_ascii_alphabetic());
-        token.make_ascii_lowercase();
-    }
+//     for token in &mut tokens {
+//         token.retain(|c| c.is_ascii_alphabetic());
+//         token.make_ascii_lowercase();
+//     }
 
-    tokens
-        .into_iter()
-        .filter(|t| t.len() > 0)
-        .collect()
-}
+//     tokens
+//         .into_iter()
+//         .filter(|t| t.len() > 0)
+//         .collect()
+// }
 
-fn count_terms(
-    document: &Document,
-    terms: &mut BTreeMap<String, u32>
-) {
-    for token in tokenize(document) {
-        let count = match terms.get(&token) {
-            Some(count) => count.clone(),
-            None => 0,
-        };
-        terms.insert(token, count + 1);
-    }
-}
+// fn count_terms(
+//     document: &Document,
+//     terms: &mut BTreeMap<String, u32>
+// ) {
+//     for token in tokenize(document) {
+//         let count = match terms.get(&token) {
+//             Some(count) => count.clone(),
+//             None => 0,
+//         };
+//         terms.insert(token, count + 1);
+//     }
+// }
 
 fn add_links(
     source: &Url,
@@ -104,7 +105,8 @@ fn add_links(
     let links = LINK_RE.find_iter(document)
         .map(|m| m.as_str())
         .map(|s| &s[6..s.len() - 1])
-        .filter_map(|href| source.join(href).ok());
+        .filter_map(|href| source.join(href).ok())
+        .filter(is_academic);
     for mut url in links {
         url.set_fragment(None);
         let h = hash64(url.as_str());
@@ -123,15 +125,14 @@ fn add_links(
 async fn crawl_url(
     url: &str,
     _id: u32,
-    client: &Client,
+    client: &HttpClient,
     _meta: &mut BTreeMap<u32, (u32, String)>,
     _index: &mut BTreeMap<String, (u32, u32)>,
     locals: Arc<Mutex<Vec<Worker<String>>>>,
     seen: &cbloom::Filter,
     total_counter: Arc<AtomicUsize>,
 ) -> Result<(), Box<dyn Error>> {
-    url.parse::<Uri>()?;
-    let head = client.head(url).send().await?;
+    let head = client.head_async(url).await?;
     let headers = head.headers();
     if let Some(content_type) = headers.get("Content-Type") {
         let content_type = content_type.to_str()?;
@@ -141,11 +142,7 @@ async fn crawl_url(
         }
     }
 
-    let res = client.get(url)
-        .send()
-        .await?
-        .text()
-        .await?;
+    let res = client.get_async(url).await?.text()?;
     // let document = Document::from(res.as_str());
     // let mut terms = BTreeMap::new();
     // count_terms(&document, &mut terms);
@@ -161,7 +158,7 @@ async fn crawl_url(
 
     let source = Url::parse(&url)?;
     if is_academic(&source) {
-        add_links(&source, res.as_str(), locals, &seen, total_counter);
+        add_links(&source, &res, locals, &seen, total_counter);
     }
 
     Ok(())
@@ -179,13 +176,16 @@ async fn crawler(
 ) {
     let mut meta = BTreeMap::new();
     let mut index = BTreeMap::new();
-    let client = Client::builder()
-        .user_agent("Rustbot/0.1")
-        .danger_accept_invalid_certs(true)
-        .danger_accept_invalid_hostnames(true)
-        .redirect(Policy::limited(100))
+    let client = HttpClient::builder()
+        .dns_cache(DnsCache::Forever)
+        .connection_cache_size(0)
+        .default_headers(&[
+            ("User-Agent", "Rustbot/0.1"),
+        ])
         .timeout(Duration::from_secs(10))
-        .build().unwrap();
+        .redirect_policy(RedirectPolicy::Limit(100))
+        .build()
+        .unwrap();
     for id in 0.. {
         let url = loop {
             let task = find_task(&locals.lock().unwrap(), &global, &stealers);
@@ -265,7 +265,7 @@ fn main() {
         .flatten()
         .map(|w| w.stealer())
         .collect::<Vec<_>>();
-    let mut rt = tokio::runtime::Builder::new()
+    let rt = tokio::runtime::Builder::new()
         .threaded_scheduler()
         .enable_time()
         .enable_io()
