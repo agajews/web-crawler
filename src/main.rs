@@ -3,10 +3,8 @@ use lazy_static::lazy_static;
 use std::error::Error;
 // use std::io;
 // use std::io::ErrorKind;
-// use reqwest::Client;
-// use reqwest::redirect::Policy;
-use isahc::prelude::*;
-use isahc::config::{RedirectPolicy, DnsCache, SslOption};
+use reqwest::Client;
+use reqwest::redirect::Policy;
 // use select::document::Document;
 // use select::predicate::Name;
 use url::Url;
@@ -28,6 +26,7 @@ use tokio::task::yield_now;
 use rand;
 use rand::Rng;
 use rand::seq::SliceRandom;
+use http::Uri;
 
 // variables to set:
 // META_DIR - directory of metadata databases
@@ -125,14 +124,15 @@ fn add_links(
 async fn crawl_url(
     url: &str,
     _id: u32,
-    client: &HttpClient,
+    client: &Client,
     _meta: &mut BTreeMap<u32, (u32, String)>,
     _index: &mut BTreeMap<String, (u32, u32)>,
     locals: Arc<Mutex<Vec<Worker<String>>>>,
     seen: &cbloom::Filter,
     total_counter: Arc<AtomicUsize>,
 ) -> Result<(), Box<dyn Error>> {
-    let head = client.head_async(url).await?;
+    url.parse::<Uri>()?;
+    let head = client.head(url).send().await?;
     let headers = head.headers();
     if let Some(content_type) = headers.get("Content-Type") {
         let content_type = content_type.to_str()?;
@@ -142,7 +142,12 @@ async fn crawl_url(
         }
     }
 
-    let res = client.get_async(url).await?.text_async().await?;
+    let res = client.get(url)
+        .send()
+        .await?
+        .text()
+        .await?;
+
     // let document = Document::from(res.as_str());
     // let mut terms = BTreeMap::new();
     // count_terms(&document, &mut terms);
@@ -158,7 +163,7 @@ async fn crawl_url(
 
     let source = Url::parse(&url)?;
     if is_academic(&source) {
-        add_links(&source, &res, locals, &seen, total_counter);
+        add_links(&source, res.as_str(), locals, &seen, total_counter);
     }
 
     Ok(())
@@ -176,17 +181,14 @@ async fn crawler(
 ) {
     let mut meta = BTreeMap::new();
     let mut index = BTreeMap::new();
-    let client = HttpClient::builder()
-        .dns_cache(DnsCache::Disable)
-        .connection_cache_size(0)
-        .default_headers(&[
-            ("User-Agent", "Rustbot/0.1"),
-        ])
+    let client = Client::builder()
+        .user_agent("Rustbot/0.1")
+        .danger_accept_invalid_certs(true)
+        .danger_accept_invalid_hostnames(true)
+        .redirect(Policy::limited(100))
         .timeout(Duration::from_secs(10))
-        .redirect_policy(RedirectPolicy::Limit(100))
-        .ssl_options(SslOption::DANGER_ACCEPT_INVALID_CERTS | SslOption::DANGER_ACCEPT_REVOKED_CERTS)
-        .build()
-        .unwrap();
+        .build().unwrap();
+
     for id in 0.. {
         let url = loop {
             let task = find_task(&locals.lock().unwrap(), &global, &stealers);

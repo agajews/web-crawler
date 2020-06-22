@@ -19,4 +19,4 @@ fasthash = "0.4.0"
 tokio = { version = "0.2", features = ["macros", "rt-threaded", "time", "io-driver"] }
 rand = "0.7.3"
 http = "0.2.1"
-isahc = "0.9.4"
+reqwest = { version = "0.10.6", features = ["blocking", "gzip", "brotli", "native-tls", "trust-dns"] }
