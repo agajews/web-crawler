@@ -142,8 +142,8 @@ async fn crawl_url(
         .text()
         .await?;
     let document = Document::from(res.as_str());
-    let mut terms = BTreeMap::new();
-    count_terms(&document, &mut terms);
+    // let mut terms = BTreeMap::new();
+    // count_terms(&document, &mut terms);
     // let n_terms = terms
     //     .iter()
     //     .map(|(_term, count)| count)
