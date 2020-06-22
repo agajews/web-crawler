@@ -110,6 +110,7 @@ fn add_links(
         .filter(|url| is_academic(url, academic_re));
     for mut url in links {
         url.set_fragment(None);
+        url.set_query(None);
         let h = hash64(url.as_str());
         if !seen.maybe_contains(h) {
             seen.insert(h);
