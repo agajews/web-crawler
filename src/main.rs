@@ -166,6 +166,7 @@ async fn crawl_url(
 
 async fn crawler(
     tid: usize,
+    client: Arc<HttpClient>,
     locals: Arc<Mutex<Vec<Worker<String>>>>,
     global: Arc<Injector<String>>,
     stealers: Vec<Stealer<String>>,
@@ -176,17 +177,6 @@ async fn crawler(
 ) {
     let mut meta = BTreeMap::new();
     let mut index = BTreeMap::new();
-    let client = HttpClient::builder()
-        .dns_cache(DnsCache::Forever)
-        .connection_cache_size(0)
-        .default_headers(&[
-            ("User-Agent", "Rustbot/0.1"),
-        ])
-        .timeout(Duration::from_secs(10))
-        .redirect_policy(RedirectPolicy::Limit(100))
-        .ssl_options(SslOption::DANGER_ACCEPT_INVALID_CERTS | SslOption::DANGER_ACCEPT_REVOKED_CERTS)
-        .build()
-        .unwrap();
     for id in 0.. {
         let url = loop {
             let task = find_task(&locals.lock().unwrap(), &global, &stealers);
@@ -302,11 +292,23 @@ async fn main() {
         let err_counter = err_counter.clone();
         tokio::spawn(async move { url_monitor(total_counter, url_counter, err_counter).await })
     };
+    let client = Arc::new(HttpClient::builder()
+        .dns_cache(DnsCache::Forever)
+        .connection_cache_size(0)
+        .default_headers(&[
+            ("User-Agent", "Rustbot/0.1"),
+        ])
+        .timeout(Duration::from_secs(10))
+        .redirect_policy(RedirectPolicy::Limit(100))
+        .ssl_options(SslOption::DANGER_ACCEPT_INVALID_CERTS | SslOption::DANGER_ACCEPT_REVOKED_CERTS)
+        .build()
+        .unwrap());
     let _threads = workers.into_iter().enumerate().map(|(tid, locals)| {
         if (tid + 1) % 100 == 0 {
             println!("spawned thread {}", tid + 1);
             thread::sleep(Duration::from_secs(1));
         }
+        let client = client.clone();
         let locals = Arc::new(Mutex::new(locals));
         let global = global.clone();
         let stealers = stealers.clone();
@@ -314,7 +316,7 @@ async fn main() {
         let url_counter = url_counter.clone();
         let err_counter = err_counter.clone();
         let seen = seen.clone();
-        tokio::spawn(async move { crawler(tid, locals, global, stealers, seen, total_counter, url_counter, err_counter).await })
+        tokio::spawn(async move { crawler(tid, client, locals, global, stealers, seen, total_counter, url_counter, err_counter).await })
     }).collect::<Vec<_>>();
 
     println!("finished spawning threads");
