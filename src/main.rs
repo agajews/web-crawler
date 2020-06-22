@@ -1,4 +1,4 @@
-use crossbeam::deque::{Injector, Stealer, Worker, Steal};
+u0se crossbeam::deque::{Injector, Stealer, Worker, Steal};
 use lazy_static::lazy_static;
 use std::error::Error;
 // use std::io;
@@ -243,8 +243,7 @@ fn find_task<T>(
     // local.pop().or_else(|| global.steal_batch_and_pop(local).success())
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let total_counter = Arc::new(AtomicUsize::new(0));
     let url_counter = Arc::new(AtomicUsize::new(0));
     let err_counter = Arc::new(AtomicUsize::new(0));
@@ -268,6 +267,8 @@ async fn main() {
         .collect::<Vec<_>>();
     let mut rt = tokio::runtime::Builder::new()
         .threaded_scheduler()
+        .enable_time()
+        .enable_io()
         .core_threads(n_os_threads)
         .max_threads(n_os_threads)
         .build()
