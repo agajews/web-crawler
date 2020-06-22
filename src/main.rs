@@ -43,8 +43,7 @@ const BLOOM_BYTES: usize = 10_000_000_000;
 const EST_URLS: usize = 1_000_000_000;
 
 lazy_static! {
-    // static ref ACADEMIC_RE: Regex = Regex::new(r"^.+\.(edu|ac\.??)$").unwrap();
-    static ref ACADEMIC_RE: Regex = Regex::new(r"columbia\.edu").unwrap();
+    static ref ACADEMIC_RE: Regex = Regex::new(r"^.+\.(edu|ac\.??)$").unwrap();
 }
 
 fn is_academic(url: &Url) -> bool {
