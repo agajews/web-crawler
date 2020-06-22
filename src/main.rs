@@ -86,6 +86,16 @@ fn is_academic(url: &Url, academic_re: &Regex) -> bool {
 //     }
 // }
 
+fn not_code(url: &str) -> bool {
+    url.ends_with(".css") ||
+        url.ends_with(".js") ||
+        url.ends_with(".pdf") ||
+        url.ends_with(".png") ||
+        url.ends_with(".ico") ||
+        url.ends_with(".jpg") ||
+        url.ends_with(".gif")
+}
+
 fn add_links(
     source: &Url,
     document: &str,
@@ -107,7 +117,8 @@ fn add_links(
         .map(|m| m.as_str())
         .map(|s| &s[6..s.len() - 1])
         .filter_map(|href| source.join(href).ok())
-        .filter(|url| is_academic(url, academic_re));
+        .filter(|url| is_academic(url, academic_re))
+        .filter(|url| not_code(url.as_str()));
     for mut url in links {
         url.set_fragment(None);
         url.set_query(None);
