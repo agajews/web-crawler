@@ -269,6 +269,7 @@ async fn main() {
     let mut rt = tokio::runtime::Builder::new()
         .threaded_scheduler()
         .core_threads(n_os_threads)
+        .max_threads(n_os_threads)
         .build()
         .unwrap();
     let _threads = workers.into_iter().enumerate().map(|(tid, locals)| {
