@@ -103,7 +103,7 @@ fn add_links(
     //     .filter(is_academic);
     let links = LINK_RE.find_iter(document)
         .map(|m| m.as_str())
-        .map(|s| &s[5..s.len() - 1])
+        .map(|s| &s[6..s.len() - 1])
         .filter_map(|href| source.join(href).ok());
     for mut url in links {
         url.set_fragment(None);
