@@ -267,6 +267,7 @@ async fn main() {
         .map(|w| w.stealer())
         .collect::<Vec<_>>();
     let mut rt = tokio::runtime::Builder::new()
+        .threaded_scheduler()
         .core_threads(n_os_threads)
         .build()
         .unwrap();
