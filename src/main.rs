@@ -177,7 +177,7 @@ async fn crawler(
     let mut meta = BTreeMap::new();
     let mut index = BTreeMap::new();
     let client = HttpClient::builder()
-        .dns_cache(DnsCache::Forever)
+        .dns_cache(DnsCache::Disable)
         .connection_cache_size(0)
         .default_headers(&[
             ("User-Agent", "Rustbot/0.1"),
