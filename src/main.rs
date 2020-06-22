@@ -87,13 +87,13 @@ fn is_academic(url: &Url, academic_re: &Regex) -> bool {
 // }
 
 fn not_code(url: &str) -> bool {
-    url.ends_with(".css") ||
+    !(url.ends_with(".css") ||
         url.ends_with(".js") ||
         url.ends_with(".pdf") ||
         url.ends_with(".png") ||
         url.ends_with(".ico") ||
         url.ends_with(".jpg") ||
-        url.ends_with(".gif")
+        url.ends_with(".gif"))
 }
 
 fn add_links(

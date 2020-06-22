@@ -2,7 +2,7 @@
 
 sudo yum install -y gcc gcc-c++ pkg-config openssl-devel git
 sudo yum install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
-sudo yum install -y htop nload perf
+sudo yum install -y htop nload perf tmux
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 source $HOME/.cargo/env
 cargo build --release
