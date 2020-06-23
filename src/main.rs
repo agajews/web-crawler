@@ -210,11 +210,12 @@ async fn crawler(
     let mut meta = BTreeMap::new();
     let mut index = BTreeMap::new();
     let client = Client::builder()
-        .user_agent("Rustbot/0.1")
+        .user_agent("Rustbot/0.2")
         .danger_accept_invalid_certs(true)
         .danger_accept_invalid_hostnames(true)
         .redirect(Policy::limited(100))
         .timeout(Duration::from_secs(60))
+        .pool_idle_timeout(Duration::from_secs(3600))
         .build().unwrap();
     let academic_re = ACADEMIC_RE.clone();
     let link_re = LINK_RE.clone();
