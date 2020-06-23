@@ -215,6 +215,7 @@ async fn crawler(
         .danger_accept_invalid_hostnames(true)
         .redirect(Policy::limited(100))
         .timeout(Duration::from_secs(60))
+        .pool_idle_timeout(Duration::from_secs(10))
         .build().unwrap();
     let academic_re = ACADEMIC_RE.clone();
     let link_re = LINK_RE.clone();
