@@ -158,15 +158,15 @@ async fn crawl_url(
     total_counter: Arc<AtomicUsize>,
 ) -> Result<(), Box<dyn Error>> {
     url.parse::<Uri>()?;
-    let head = client.head(url).send().await?;
-    let headers = head.headers();
-    if let Some(content_type) = headers.get("Content-Type") {
-        let content_type = content_type.to_str()?;
-        if !content_type.starts_with("text/html") {
-            // return Err(Box::new(io::Error::new(ErrorKind::Other, format!("not HTML, content-type: {}", content_type))));
-            return Ok(());
-        }
-    }
+    // let head = client.head(url).send().await?;
+    // let headers = head.headers();
+    // if let Some(content_type) = headers.get("Content-Type") {
+    //     let content_type = content_type.to_str()?;
+    //     if !content_type.starts_with("text/html") {
+    //         // return Err(Box::new(io::Error::new(ErrorKind::Other, format!("not HTML, content-type: {}", content_type))));
+    //         return Ok(());
+    //     }
+    // }
 
     let start = Instant::now();
     let res = client.get(url)
