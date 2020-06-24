@@ -1,4 +1,3 @@
-use crossbeam::deque::{Injector, Stealer, Worker, Steal};
 use lazy_static::lazy_static;
 use std::error::Error;
 // use std::io;
@@ -8,11 +7,10 @@ use reqwest::redirect::Policy;
 // use select::document::Document;
 // use select::predicate::Name;
 use url::Url;
-use std::iter;
 use std::thread;
 use std::sync::{Arc, Mutex};
 use std::env;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use regex::Regex;
 // use uuid::Uuid;
 // use std::path::PathBuf;
@@ -22,10 +20,6 @@ use std::time::{Instant, Duration};
 use cbloom;
 use fasthash::metro::hash64;
 use tokio;
-use tokio::task::yield_now;
-use rand;
-use rand::Rng;
-use rand::seq::SliceRandom;
 use http::Uri;
 
 // variables to set:
@@ -45,6 +39,57 @@ const EST_URLS: usize = 1_000_000_000;
 lazy_static! {
     static ref ACADEMIC_RE: Regex = Regex::new(r"^.+\.(edu|ac\.??)$").unwrap();
     static ref LINK_RE: Regex = Regex::new("href=['\"][^'\"]+['\"]").unwrap();
+}
+
+struct TaskPool<T> {
+    pool: Arc<Vec<Mutex<VecDeque<T>>>>,
+}
+
+struct TaskHandler<T> {
+    pool: Arc<Vec<Mutex<VecDeque<T>>>>,
+    i: usize,
+}
+
+impl<T> TaskPool<T> {
+    fn new(n: usize) -> TaskPool<T> {
+        let mut pool = Vec::new();
+        for _ in 0..n {
+            pool.push(Mutex::new(VecDeque::new()));
+        }
+        TaskPool { pool: Arc::new(pool) }
+    }
+
+    fn handler(&self, i: usize) -> TaskHandler<T> {
+        TaskHandler { pool: self.pool.clone(), i }
+    }
+
+    fn push(&self, task: T) {
+        self.pool[0].lock().unwrap().push_back(task);
+    }
+}
+
+impl<T> TaskHandler<T> {
+    fn pop(&self) -> T {
+        let own_task = {
+            self.pool[self.i].lock().unwrap().pop_front()
+        };
+        match own_task {
+            Some(task) => task,
+            None => self.steal(),
+        }
+    }
+
+    fn steal(&self) -> T {
+        ((self.i)..).find_map(|j| self.try_steal(j)).unwrap()
+    }
+
+    fn try_steal(&self, j: usize) -> Option<T> {
+        self.pool[j % self.pool.len()].try_lock().ok()?.pop_front()
+    }
+
+    fn push(&self, task: T) {
+        self.pool[self.i].lock().unwrap().push_back(task);
+    }
 }
 
 fn is_academic(url: &Url, academic_re: &Regex) -> bool {
@@ -103,14 +148,13 @@ fn clearly_not_html(url: &str) -> bool {
 fn add_links(
     source: &Url,
     document: &str,
-    local: Arc<Mutex<Vec<Worker<String>>>>,
+    handler: &TaskHandler<String>,
     seen: &cbloom::Filter,
     academic_re: &Regex,
     link_re: &Regex,
     total_counter: Arc<AtomicUsize>,
 ) {
     // TODO: link loops
-    let locals = local.lock().unwrap();
     // let links = document
     //     .find(Name("a"))
     //     .filter_map(|node| node.attr("href"))
@@ -134,12 +178,8 @@ fn add_links(
         let h = hash64(url.as_str());
         if !seen.maybe_contains(h) {
             seen.insert(h);
-            if let Some(host) = url.host_str() {
-                let d = hash64(&host);
-                let local = &locals[d as usize % locals.len()];
-                local.push(url.into_string());
-                total_counter.fetch_add(1, Ordering::Relaxed);
-            }
+            handler.push(url.into_string());
+            total_counter.fetch_add(1, Ordering::Relaxed);
         }
     }
 }
@@ -150,7 +190,7 @@ async fn crawl_url(
     client: &Client,
     _meta: &mut BTreeMap<u32, (u32, String)>,
     _index: &mut BTreeMap<String, (u32, u32)>,
-    locals: Arc<Mutex<Vec<Worker<String>>>>,
+    handler: &TaskHandler<String>,
     seen: &cbloom::Filter,
     academic_re: &Regex,
     link_re: &Regex,
@@ -190,7 +230,7 @@ async fn crawl_url(
 
     let source = Url::parse(&url)?;
     if is_academic(&source, academic_re) {
-        add_links(&source, res.as_str(), locals, seen, academic_re, link_re, total_counter);
+        add_links(&source, res.as_str(), handler, seen, academic_re, link_re, total_counter);
     }
 
     Ok(())
@@ -198,9 +238,7 @@ async fn crawl_url(
 
 async fn crawler(
     tid: usize,
-    locals: Arc<Mutex<Vec<Worker<String>>>>,
-    global: Arc<Injector<String>>,
-    stealers: Vec<Stealer<String>>,
+    handler: TaskHandler<String>,
     seen: Arc<cbloom::Filter>,
     time_counter: Arc<AtomicUsize>,
     total_counter: Arc<AtomicUsize>,
@@ -220,20 +258,13 @@ async fn crawler(
     let link_re = LINK_RE.clone();
 
     for id in 0.. {
-        let url = loop {
-            let task = find_task(&locals.lock().unwrap(), &global, &stealers);
-            match task {
-                Some(url) => break url,
-                None => yield_now().await,
-            };
-        };
+        let url = handler.pop();
         if tid < 10 {
             println!("thread {} crawling {}...", tid, url);
         }
-        let res = crawl_url(&url, id as u32, &client, &mut meta, &mut index, locals.clone(), &seen, &academic_re, &link_re, time_counter.clone(), total_counter.clone()).await;
+        let res = crawl_url(&url, id as u32, &client, &mut meta, &mut index, &handler, &seen, &academic_re, &link_re, time_counter.clone(), total_counter.clone()).await;
         if tid < 10 {
-            let n_empty = locals.lock().unwrap().iter().filter(|w| w.is_empty()).count();
-            println!("thread {} finished {}, empty queues: {}", tid, url, n_empty);
+            println!("thread {} finished {}", tid, url);
         }
         if let Err(err) = res {
             if tid < 10 {
@@ -244,36 +275,6 @@ async fn crawler(
         url_counter.fetch_add(1, Ordering::Relaxed);
     }
     println!("all done!");
-}
-
-fn find_task<T>(
-    locals: &[Worker<T>],
-    global: &Injector<T>,
-    stealers: &[Stealer<T>],
-) -> Option<T> {
-    if rand::thread_rng().gen::<f32>() < 0.01 {
-        let nonempty = stealers.iter().filter(|w| !w.is_empty()).collect::<Vec<_>>();
-        let stealer = nonempty.choose(&mut rand::thread_rng());
-        return stealer.and_then(|s| s.steal().success());
-    }
-    // Pop a task from the local queue, if not empty.
-    let nonempty = locals.iter().filter(|w| !w.is_empty()).collect::<Vec<_>>();
-    let local = nonempty.choose(&mut rand::thread_rng());
-    local.and_then(|l| l.pop()).or_else(|| {
-        // println!("waiting for work...");
-        // Otherwise, we need to look for a task elsewhere.
-        // Try stealing a batch of tasks from the global queue.
-        global.steal_batch_and_pop(&locals[0])
-            // Or try stealing a task from one of the other threads.
-            .or_else(|| {
-                let nonempty = stealers.iter().filter(|w| !w.is_empty()).collect::<Vec<_>>();
-                let stealer = nonempty.choose(&mut rand::thread_rng());
-                stealer.map(|s| s.steal()).unwrap_or(Steal::Empty)
-            })
-            .success()
-        // Loop while no task was stolen and any steal operation needs to be retried.
-    })
-    // local.pop().or_else(|| global.steal_batch_and_pop(local).success())
 }
 
 async fn url_monitor(time_counter: Arc<AtomicUsize>, total_counter: Arc<AtomicUsize>, url_counter: Arc<AtomicUsize>, err_counter: Arc<AtomicUsize>) {
@@ -309,30 +310,11 @@ async fn main() {
     let err_counter = Arc::new(AtomicUsize::new(0));
     let args = env::args().collect::<Vec<_>>();
     let n_threads: usize = args[1].parse().unwrap();
-    let n_queues: usize = args[2].parse().unwrap();
-    // let n_os_threads: usize = args[3].parse().unwrap();
-    let global = Arc::new(Injector::new());
+    let pool = TaskPool::new(n_threads);
     let seen = Arc::new(cbloom::Filter::new(BLOOM_BYTES, EST_URLS));
     for url in &ROOT_SET {
-        global.push(String::from(*url));
+        pool.push(String::from(*url));
     }
-    let workers = iter::repeat_with(|| {
-        iter::repeat_with(|| Worker::new_fifo())
-            .take(n_queues)
-            .collect::<Vec<_>>()
-    }).take(n_threads).collect::<Vec<_>>();
-    let stealers = workers.iter()
-        .flatten()
-        .map(|w| w.stealer())
-        .collect::<Vec<_>>();
-    // let mut rt = tokio::runtime::Builder::new()
-    //     .threaded_scheduler()
-    //     .enable_time()
-    //     .enable_io()
-    //     .core_threads(n_os_threads)
-    //     .max_threads(n_os_threads)
-    //     .build()
-    //     .unwrap();
     let monitor_handle = {
         let time_counter = time_counter.clone();
         let total_counter = total_counter.clone();
@@ -340,20 +322,18 @@ async fn main() {
         let err_counter = err_counter.clone();
         tokio::spawn(async move { url_monitor(time_counter, total_counter, url_counter, err_counter).await })
     };
-    let _threads = workers.into_iter().enumerate().map(|(tid, locals)| {
+    let _threads = (0..n_threads).map(|tid| {
         if (tid + 1) % 100 == 0 {
             println!("spawned thread {}", tid + 1);
             // thread::sleep(Duration::from_secs(1));
         }
-        let locals = Arc::new(Mutex::new(locals));
-        let global = global.clone();
-        let stealers = stealers.clone();
+        let handler = pool.handler(tid);
         let time_counter = time_counter.clone();
         let total_counter = total_counter.clone();
         let url_counter = url_counter.clone();
         let err_counter = err_counter.clone();
         let seen = seen.clone();
-        tokio::spawn(async move { crawler(tid, locals, global, stealers, seen, time_counter, total_counter, url_counter, err_counter).await })
+        tokio::spawn(async move { crawler(tid, handler, seen, time_counter, total_counter, url_counter, err_counter).await })
     }).collect::<Vec<_>>();
 
     println!("finished spawning threads");
