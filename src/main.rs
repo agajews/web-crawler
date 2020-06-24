@@ -20,6 +20,7 @@ use std::time::{Instant, Duration};
 use cbloom;
 use fasthash::metro::hash64;
 use tokio;
+use tokio::time::delay_for;
 use http::Uri;
 
 // variables to set:
@@ -33,7 +34,7 @@ const ROOT_SET: [&str; 4] = [
     "https://cam.ac.uk",
 ];
 
-const BLOOM_BYTES: usize = 10_000_000_000;
+const BLOOM_BYTES: usize = 10_000_000_0;
 const EST_URLS: usize = 1_000_000_000;
 
 lazy_static! {
@@ -69,18 +70,19 @@ impl<T> TaskPool<T> {
 }
 
 impl<T> TaskHandler<T> {
-    fn pop(&self) -> T {
+    fn pop(&self) -> Option<T> {
         let own_task = {
             self.pool[self.i].lock().unwrap().pop_front()
         };
         match own_task {
-            Some(task) => task,
+            Some(task) => Some(task),
             None => self.steal(),
         }
     }
 
-    fn steal(&self) -> T {
-        ((self.i)..).find_map(|j| self.try_steal(j)).unwrap()
+    fn steal(&self) -> Option<T> {
+        ((self.i + 1)..=(self.i + self.pool.len()))
+            .find_map(|j| self.try_steal(j))
     }
 
     fn try_steal(&self, j: usize) -> Option<T> {
@@ -258,7 +260,12 @@ async fn crawler(
     let link_re = LINK_RE.clone();
 
     for id in 0.. {
-        let url = handler.pop();
+        let url = loop {
+            match handler.pop() {
+                Some(url) => break url,
+                None => delay_for(Duration::from_secs(1)).await,
+            }
+        };
         if tid < 10 {
             println!("thread {} crawling {}...", tid, url);
         }
