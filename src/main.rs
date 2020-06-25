@@ -38,7 +38,7 @@ const ROOT_SET: [&str; 4] = [
     "https://cam.ac.uk",
 ];
 
-const BLOOM_BYTES: usize = 10_000_000_0;
+const BLOOM_BYTES: usize = 10_000_000_000;
 const EST_URLS: usize = 1_000_000_000;
 
 lazy_static! {
