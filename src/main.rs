@@ -23,7 +23,6 @@ use tokio;
 use tokio::time::delay_for;
 use tokio::runtime;
 use http::Uri;
-use futures::stream::{FuturesUnordered, StreamExt};
 use core_affinity;
 use core_affinity::CoreId;
 use rand;
@@ -97,8 +96,8 @@ impl<T> TaskHandler<T> {
     }
 
     fn push(&self, task: T) {
-        let j = rand::thread_rng().gen::<usize>() % self.pool.len();
-        self.pool[j].lock().unwrap().push_back(task);
+        // let j = rand::thread_rng().gen::<usize>() % self.pool.len();
+        self.pool[self.i].lock().unwrap().push_back(task);
     }
 }
 
@@ -179,10 +178,8 @@ fn add_links(source: &Url, document: &str, state: &CrawlerState) {
     }
 }
 
-async fn crawl_url(url: &str, state: &CrawlerState) -> Result<(), Box<dyn Error>> {
+async fn crawl_url(url: &str, client: &Client, state: &CrawlerState) -> Result<(), Box<dyn Error>> {
     url.parse::<Uri>()?;
-    let j = rand::thread_rng().gen::<usize>() % state.clients.len();
-    let client = &state.clients[j];
     let head = client.head(url).send().await?;
     let headers = head.headers();
     if let Some(content_type) = headers.get("Content-Type") {
@@ -207,48 +204,44 @@ async fn crawl_url(url: &str, state: &CrawlerState) -> Result<(), Box<dyn Error>
     Ok(())
 }
 
-async fn spawn_url(url: String, state: &CrawlerState) {
-    if let Err(err) = crawl_url(&url, state).await {
-        state.err_counter.fetch_add(1, Ordering::Relaxed);
-        if state.tid < 1 {
-            println!("error crawling {}: {:?}", url, err);
-        }
-    }
-    state.url_counter.fetch_add(1, Ordering::Relaxed);
-}
+async fn crawler(state: Arc<CrawlerState>) {
+    // TODO: optimize request size
+    let client = Client::builder()
+        .user_agent("Rustbot/0.2")
+        .danger_accept_invalid_certs(true)
+        .danger_accept_invalid_hostnames(true)
+        .redirect(Policy::limited(100))
+        .timeout(Duration::from_secs(60))
+        .build().unwrap();
 
-async fn spawn_tasks(state: &CrawlerState) {
-    let mut jobs = FuturesUnordered::new();
     loop {
-        while jobs.len() < state.max_conns {
-            match state.handler.pop() {
-                Some(url) => { jobs.push(spawn_url(url, state)); },
-                None => if jobs.len() == 0 {
-                    delay_for(Duration::from_secs(1)).await;
-                } else {
-                    break;
-                },
+        let url = match state.handler.pop() {
+            Some(url) => url,
+            None => { delay_for(Duration::from_secs(1)).await; continue; },
+        };
+        if let Err(err) = crawl_url(&url, &client, &state).await {
+            state.err_counter.fetch_add(1, Ordering::Relaxed);
+            if state.tid < 1 {
+                println!("error crawling {}: {:?}", url, err);
             }
         }
-        jobs.next().await;
+        state.url_counter.fetch_add(1, Ordering::Relaxed);
     }
 }
 
 struct CrawlerState {
     tid: usize,
-    max_conns: usize,
     handler: TaskHandler<String>,
     seen: Arc<cbloom::Filter>,
     time_counter: Arc<AtomicUsize>,
     total_counter: Arc<AtomicUsize>,
     url_counter: Arc<AtomicUsize>,
     err_counter: Arc<AtomicUsize>,
-    clients: Vec<Client>,
     academic_re: Regex,
     link_re: Regex,
 }
 
-fn crawler(
+fn crawler_core(
     coreid: CoreId,
     max_conns: usize,
     handler: TaskHandler<String>,
@@ -259,18 +252,6 @@ fn crawler(
     err_counter: Arc<AtomicUsize>,
 ) {
     core_affinity::set_for_current(coreid);
-    // TODO: optimize request size
-    let mut clients = Vec::new();
-    for _ in 0..max_conns {
-        let client = Client::builder()
-            .user_agent("Rustbot/0.2")
-            .danger_accept_invalid_certs(true)
-            .danger_accept_invalid_hostnames(true)
-            .redirect(Policy::limited(100))
-            .timeout(Duration::from_secs(60))
-            .build().unwrap();
-        clients.push(client);
-    }
     let academic_re = ACADEMIC_RE.clone();
     let link_re = LINK_RE.clone();
     let handler = handler;
@@ -282,21 +263,24 @@ fn crawler(
         .build()
         .unwrap();
 
-    let state = CrawlerState {
+    let state = Arc::new(CrawlerState {
         tid: coreid.id,
-        max_conns,
         handler,
         seen,
         time_counter,
         total_counter,
         url_counter,
         err_counter,
-        clients,
         academic_re,
         link_re,
-    };
+    });
 
-    rt.block_on(spawn_tasks(&state));
+    for _ in 0..(max_conns - 1) {
+        let state = state.clone();
+        rt.spawn(crawler(state));
+    }
+
+    rt.block_on(crawler(state));
 }
 
 fn url_monitor(time_counter: Arc<AtomicUsize>, total_counter: Arc<AtomicUsize>, url_counter: Arc<AtomicUsize>, err_counter: Arc<AtomicUsize>) {
@@ -353,7 +337,7 @@ fn main() {
         let url_counter = url_counter.clone();
         let err_counter = err_counter.clone();
         let seen = seen.clone();
-        thread::spawn(move || crawler(coreid, max_conns, handler, seen, time_counter, total_counter, url_counter, err_counter))
+        thread::spawn(move || crawler_core(coreid, max_conns, handler, seen, time_counter, total_counter, url_counter, err_counter))
     }).collect::<Vec<_>>();
 
     let _res = monitor_handle.join();
