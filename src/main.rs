@@ -205,6 +205,7 @@ async fn crawl_url(url: &str, client: &Client, state: &CrawlerState, handler: &T
 }
 
 async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, id: usize) {
+    delay_for(Duration::from_millis(100 * id as u64)).await;
     // TODO: optimize request size
     let client = Client::builder()
         .user_agent("Rustbot/0.2")
@@ -217,7 +218,7 @@ async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, id: usi
     loop {
         let url = match handler.pop() {
             Some(url) => url,
-            None => { delay_for(Duration::from_millis(100 * id as u64)).await; continue; },
+            None => { delay_for(Duration::from_millis(100)).await; continue; },
         };
         if let Err(err) = crawl_url(&url, &client, &state, &handler).await {
             state.err_counter.fetch_add(1, Ordering::Relaxed);
