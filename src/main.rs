@@ -252,7 +252,7 @@ fn crawler(
     url_counter: Arc<AtomicUsize>,
     err_counter: Arc<AtomicUsize>,
 ) {
-    core_affinity::set_for_current(coreid);
+    // core_affinity::set_for_current(coreid);
     // TODO: optimize request size
     let client = Client::builder()
         .user_agent("Rustbot/0.2")
