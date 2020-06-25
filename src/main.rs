@@ -26,6 +26,8 @@ use http::Uri;
 use futures::stream::{FuturesUnordered, StreamExt};
 use core_affinity;
 use core_affinity::CoreId;
+use rand;
+use rand::Rng;
 
 // variables to set:
 // META_DIR - directory of metadata databases
@@ -69,7 +71,8 @@ impl<T> TaskPool<T> {
     }
 
     fn push(&self, task: T) {
-        self.pool[0].lock().unwrap().push_back(task);
+        let i = rand::thread_rng().gen::<usize>() % self.pool.len();
+        self.pool[i].lock().unwrap().push_back(task);
     }
 }
 
@@ -94,7 +97,8 @@ impl<T> TaskHandler<T> {
     }
 
     fn push(&self, task: T) {
-        self.pool[self.i].lock().unwrap().push_back(task);
+        let j = rand::thread_rng().gen::<usize>() % self.pool.len();
+        self.pool[j].lock().unwrap().push_back(task);
     }
 }
 
