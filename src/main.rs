@@ -10,7 +10,7 @@ use url::Url;
 use std::thread;
 use std::sync::{Arc, Mutex};
 use std::env;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::VecDeque;
 use regex::Regex;
 // use uuid::Uuid;
 // use std::path::PathBuf;
@@ -21,7 +21,11 @@ use cbloom;
 use fasthash::metro::hash64;
 use tokio;
 use tokio::time::delay_for;
+use tokio::runtime;
 use http::Uri;
+use futures::stream::{FuturesUnordered, StreamExt};
+use core_affinity;
+use core_affinity::CoreId;
 
 // variables to set:
 // META_DIR - directory of metadata databases
@@ -72,7 +76,7 @@ impl<T> TaskPool<T> {
 impl<T> TaskHandler<T> {
     fn pop(&self) -> Option<T> {
         let own_task = {
-            self.pool[self.i].lock().unwrap().pop_front()
+            self.pool[self.i].try_lock().ok()?.pop_front()
         };
         match own_task {
             Some(task) => Some(task),
@@ -147,27 +151,12 @@ fn clearly_not_html(url: &str) -> bool {
         url.ends_with(".GIF")
 }
 
-fn add_links(
-    source: &Url,
-    document: &str,
-    handler: &TaskHandler<String>,
-    seen: &cbloom::Filter,
-    academic_re: &Regex,
-    link_re: &Regex,
-    total_counter: Arc<AtomicUsize>,
-) {
-    // TODO: link loops
-    // let links = document
-    //     .find(Name("a"))
-    //     .filter_map(|node| node.attr("href"))
-    //     .filter_map(|href| source.join(href).ok())
-    //     .filter(|href| href.scheme().starts_with("http"))
-    //     .filter(is_academic);
-    let links = link_re.find_iter(document)
+fn add_links(source: &Url, document: &str, state: &CrawlerState) {
+    let links = state.link_re.find_iter(document)
         .map(|m| m.as_str())
         .map(|s| &s[6..s.len() - 1])
         .filter_map(|href| source.join(href).ok())
-        .filter(|url| is_academic(url, academic_re));
+        .filter(|url| is_academic(url, &state.academic_re));
     for mut url in links {
         url.set_fragment(None);
         url.set_query(None);
@@ -178,68 +167,84 @@ fn add_links(
             continue;
         }
         let h = hash64(url.as_str());
-        if !seen.maybe_contains(h) {
-            seen.insert(h);
-            handler.push(url.into_string());
-            total_counter.fetch_add(1, Ordering::Relaxed);
+        if !state.seen.maybe_contains(h) {
+            state.seen.insert(h);
+            state.handler.push(url.into_string());
+            state.total_counter.fetch_add(1, Ordering::Relaxed);
         }
     }
 }
 
-async fn crawl_url(
-    url: &str,
-    _id: u32,
-    client: &Client,
-    _meta: &mut BTreeMap<u32, (u32, String)>,
-    _index: &mut BTreeMap<String, (u32, u32)>,
-    handler: &TaskHandler<String>,
-    seen: &cbloom::Filter,
-    academic_re: &Regex,
-    link_re: &Regex,
-    time_counter: Arc<AtomicUsize>,
-    total_counter: Arc<AtomicUsize>,
-) -> Result<(), Box<dyn Error>> {
+async fn crawl_url(url: &str, state: &CrawlerState) -> Result<(), Box<dyn Error>> {
     url.parse::<Uri>()?;
-    let head = client.head(url).send().await?;
+    let head = state.client.head(url).send().await?;
     let headers = head.headers();
     if let Some(content_type) = headers.get("Content-Type") {
         let content_type = content_type.to_str()?;
         if !content_type.starts_with("text/html") {
-            // return Err(Box::new(io::Error::new(ErrorKind::Other, format!("not HTML, content-type: {}", content_type))));
             return Ok(());
         }
     }
 
     let start = Instant::now();
-    let res = client.get(url)
+    let res = state.client.get(url)
         .send()
         .await?;
-    time_counter.fetch_add(start.elapsed().as_millis() as usize, Ordering::Relaxed);
+    state.time_counter.fetch_add(start.elapsed().as_millis() as usize, Ordering::Relaxed);
     let res = res.text().await?;
 
-    // let document = Document::from(res.as_str());
-    // let mut terms = BTreeMap::new();
-    // count_terms(&document, &mut terms);
-    // let n_terms = terms
-    //     .iter()
-    //     .map(|(_term, count)| count)
-    //     .sum();
-
-    // meta.insert(id, (n_terms, String::from(url)));
-    // for (term, count) in terms {
-    //     index.insert(term, (id, count));
-    // }
-
-    let source = Url::parse(&url)?;
-    if is_academic(&source, academic_re) {
-        add_links(&source, res.as_str(), handler, seen, academic_re, link_re, total_counter);
+    let source = Url::parse(url)?;
+    if is_academic(&source, &state.academic_re) {
+        add_links(&source, res.as_str(), state);
     }
 
     Ok(())
 }
 
-async fn crawler(
+async fn spawn_url(url: String, state: &CrawlerState) {
+    if let Err(err) = crawl_url(&url, state).await {
+        state.err_counter.fetch_add(1, Ordering::Relaxed);
+        if state.tid < 10 {
+            println!("error crawling {}: {:?}", url, err);
+        }
+    }
+    state.url_counter.fetch_add(1, Ordering::Relaxed);
+}
+
+async fn spawn_tasks(state: &CrawlerState) {
+    let mut jobs = FuturesUnordered::new();
+    loop {
+        while jobs.len() < state.max_conns {
+            match state.handler.pop() {
+                Some(url) => { jobs.push(spawn_url(url, state)); },
+                None => if jobs.len() == 0 {
+                    delay_for(Duration::from_secs(1)).await;
+                } else {
+                    break;
+                },
+            }
+        }
+        jobs.next().await;
+    }
+}
+
+struct CrawlerState {
     tid: usize,
+    max_conns: usize,
+    handler: TaskHandler<String>,
+    seen: Arc<cbloom::Filter>,
+    time_counter: Arc<AtomicUsize>,
+    total_counter: Arc<AtomicUsize>,
+    url_counter: Arc<AtomicUsize>,
+    err_counter: Arc<AtomicUsize>,
+    client: Client,
+    academic_re: Regex,
+    link_re: Regex,
+}
+
+fn crawler(
+    coreid: CoreId,
+    max_conns: usize,
     handler: TaskHandler<String>,
     seen: Arc<cbloom::Filter>,
     time_counter: Arc<AtomicUsize>,
@@ -247,8 +252,8 @@ async fn crawler(
     url_counter: Arc<AtomicUsize>,
     err_counter: Arc<AtomicUsize>,
 ) {
-    let mut meta = BTreeMap::new();
-    let mut index = BTreeMap::new();
+    core_affinity::set_for_current(coreid);
+    // TODO: optimize request size
     let client = Client::builder()
         .user_agent("Rustbot/0.2")
         .danger_accept_invalid_certs(true)
@@ -258,33 +263,33 @@ async fn crawler(
         .build().unwrap();
     let academic_re = ACADEMIC_RE.clone();
     let link_re = LINK_RE.clone();
+    let handler = handler;
 
-    for id in 0.. {
-        let url = loop {
-            match handler.pop() {
-                Some(url) => break url,
-                None => delay_for(Duration::from_secs(1)).await,
-            }
-        };
-        if tid < 10 {
-            println!("thread {} crawling {}...", tid, url);
-        }
-        let res = crawl_url(&url, id as u32, &client, &mut meta, &mut index, &handler, &seen, &academic_re, &link_re, time_counter.clone(), total_counter.clone()).await;
-        if tid < 10 {
-            println!("thread {} finished {}", tid, url);
-        }
-        if let Err(err) = res {
-            if tid < 10 {
-                println!("error crawling {}: {:?}", url, err);
-            }
-            err_counter.fetch_add(1, Ordering::Relaxed);
-        }
-        url_counter.fetch_add(1, Ordering::Relaxed);
-    }
-    println!("all done!");
+    let mut rt = runtime::Builder::new()
+        .basic_scheduler()
+        .enable_time()
+        .enable_io()
+        .build()
+        .unwrap();
+
+    let state = CrawlerState {
+        tid: coreid.id,
+        max_conns,
+        handler,
+        seen,
+        time_counter,
+        total_counter,
+        url_counter,
+        err_counter,
+        client,
+        academic_re,
+        link_re,
+    };
+
+    rt.block_on(spawn_tasks(&state));
 }
 
-async fn url_monitor(time_counter: Arc<AtomicUsize>, total_counter: Arc<AtomicUsize>, url_counter: Arc<AtomicUsize>, err_counter: Arc<AtomicUsize>) {
+fn url_monitor(time_counter: Arc<AtomicUsize>, total_counter: Arc<AtomicUsize>, url_counter: Arc<AtomicUsize>, err_counter: Arc<AtomicUsize>) {
     let mut old_time = time_counter.load(Ordering::Relaxed);
     let mut old_count = url_counter.load(Ordering::Relaxed);
     let mut old_err = err_counter.load(Ordering::Relaxed);
@@ -309,15 +314,15 @@ async fn url_monitor(time_counter: Arc<AtomicUsize>, total_counter: Arc<AtomicUs
     }
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let time_counter = Arc::new(AtomicUsize::new(0));
     let total_counter = Arc::new(AtomicUsize::new(0));
     let url_counter = Arc::new(AtomicUsize::new(0));
     let err_counter = Arc::new(AtomicUsize::new(0));
     let args = env::args().collect::<Vec<_>>();
-    let n_threads: usize = args[1].parse().unwrap();
-    let pool = TaskPool::new(n_threads);
+    let max_conns: usize = args[1].parse().unwrap();
+    let core_ids = core_affinity::get_core_ids().unwrap();
+    let pool = TaskPool::new(core_ids.len());
     let seen = Arc::new(cbloom::Filter::new(BLOOM_BYTES, EST_URLS));
     for url in &ROOT_SET {
         pool.push(String::from(*url));
@@ -327,22 +332,21 @@ async fn main() {
         let total_counter = total_counter.clone();
         let url_counter = url_counter.clone();
         let err_counter = err_counter.clone();
-        tokio::spawn(async move { url_monitor(time_counter, total_counter, url_counter, err_counter).await })
+        thread::spawn(move || url_monitor(time_counter, total_counter, url_counter, err_counter) )
     };
-    let _threads = (0..n_threads).map(|tid| {
-        if (tid + 1) % 100 == 0 {
-            println!("spawned thread {}", tid + 1);
+    let _threads = core_ids.into_iter().map(|coreid| {
+        if (coreid.id + 1) % 100 == 0 {
+            println!("spawned thread {}", coreid.id + 1);
             // thread::sleep(Duration::from_secs(1));
         }
-        let handler = pool.handler(tid);
+        let handler = pool.handler(coreid.id);
         let time_counter = time_counter.clone();
         let total_counter = total_counter.clone();
         let url_counter = url_counter.clone();
         let err_counter = err_counter.clone();
         let seen = seen.clone();
-        tokio::spawn(async move { crawler(tid, handler, seen, time_counter, total_counter, url_counter, err_counter).await })
+        thread::spawn(move || crawler(coreid, max_conns, handler, seen, time_counter, total_counter, url_counter, err_counter))
     }).collect::<Vec<_>>();
 
-    println!("finished spawning threads");
-    let _res = tokio::join!(monitor_handle);
+    let _res = monitor_handle.join();
 }
