@@ -316,7 +316,7 @@ fn main() {
     let args = env::args().collect::<Vec<_>>();
     let max_conns: usize = args[1].parse().unwrap();
     let core_ids = core_affinity::get_core_ids().unwrap();
-    let pool = TaskPool::new(core_ids.len());
+    let pool = TaskPool::new(core_ids.len() * max_conns);
     let seen = Arc::new(cbloom::Filter::new(BLOOM_BYTES, EST_URLS));
     for url in &ROOT_SET {
         pool.push(String::from(*url));
