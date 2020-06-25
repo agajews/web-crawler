@@ -34,7 +34,7 @@ const ROOT_SET: [&str; 4] = [
     "https://cam.ac.uk",
 ];
 
-const BLOOM_BYTES: usize = 10_000_000_000;
+const BLOOM_BYTES: usize = 10_000_000_0;
 const EST_URLS: usize = 1_000_000_000;
 
 lazy_static! {
@@ -332,7 +332,7 @@ async fn main() {
     let _threads = (0..n_threads).map(|tid| {
         if (tid + 1) % 100 == 0 {
             println!("spawned thread {}", tid + 1);
-            thread::sleep(Duration::from_millis(100));
+            // thread::sleep(Duration::from_secs(1));
         }
         let handler = pool.handler(tid);
         let time_counter = time_counter.clone();
