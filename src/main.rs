@@ -336,7 +336,7 @@ fn main() {
     };
     let _threads = core_ids.into_iter().map(|coreid| {
         println!("spawned thread {}", coreid.id + 1);
-        thread::sleep(Duration::from_secs(10));
+        thread::sleep(Duration::from_secs(1));
         let handler = pool.handler(coreid.id);
         let time_counter = time_counter.clone();
         let total_counter = total_counter.clone();
