@@ -181,7 +181,9 @@ fn add_links(source: &Url, document: &str, state: &CrawlerState) {
 
 async fn crawl_url(url: &str, state: &CrawlerState) -> Result<(), Box<dyn Error>> {
     url.parse::<Uri>()?;
-    let head = state.client.head(url).send().await?;
+    let j = rand::thread_rng().gen::<usize>() % state.clients.len();
+    let client = &state.clients[j];
+    let head = client.head(url).send().await?;
     let headers = head.headers();
     if let Some(content_type) = headers.get("Content-Type") {
         let content_type = content_type.to_str()?;
@@ -191,7 +193,7 @@ async fn crawl_url(url: &str, state: &CrawlerState) -> Result<(), Box<dyn Error>
     }
 
     let start = Instant::now();
-    let res = state.client.get(url)
+    let res = client.get(url)
         .send()
         .await?;
     state.time_counter.fetch_add(start.elapsed().as_millis() as usize, Ordering::Relaxed);
@@ -241,7 +243,7 @@ struct CrawlerState {
     total_counter: Arc<AtomicUsize>,
     url_counter: Arc<AtomicUsize>,
     err_counter: Arc<AtomicUsize>,
-    client: Client,
+    clients: Vec<Client>,
     academic_re: Regex,
     link_re: Regex,
 }
@@ -258,14 +260,17 @@ fn crawler(
 ) {
     core_affinity::set_for_current(coreid);
     // TODO: optimize request size
-    let client = Client::builder()
-        .user_agent("Rustbot/0.2")
-        .danger_accept_invalid_certs(true)
-        .danger_accept_invalid_hostnames(true)
-        .redirect(Policy::limited(100))
-        .timeout(Duration::from_secs(60))
-        .pool_max_idle_per_host(0)
-        .build().unwrap();
+    let mut clients = Vec::new();
+    for _ in 0..max_conns {
+        let client = Client::builder()
+            .user_agent("Rustbot/0.2")
+            .danger_accept_invalid_certs(true)
+            .danger_accept_invalid_hostnames(true)
+            .redirect(Policy::limited(100))
+            .timeout(Duration::from_secs(60))
+            .build().unwrap();
+        clients.push(client);
+    }
     let academic_re = ACADEMIC_RE.clone();
     let link_re = LINK_RE.clone();
     let handler = handler;
@@ -286,7 +291,7 @@ fn crawler(
         total_counter,
         url_counter,
         err_counter,
-        client,
+        clients,
         academic_re,
         link_re,
     };
