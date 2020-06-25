@@ -335,10 +335,8 @@ fn main() {
         thread::spawn(move || url_monitor(time_counter, total_counter, url_counter, err_counter) )
     };
     let _threads = core_ids.into_iter().map(|coreid| {
-        if (coreid.id + 1) % 100 == 0 {
-            println!("spawned thread {}", coreid.id + 1);
-            // thread::sleep(Duration::from_secs(1));
-        }
+        println!("spawned thread {}", coreid.id + 1);
+        thread::sleep(Duration::from_secs(10));
         let handler = pool.handler(coreid.id);
         let time_counter = time_counter.clone();
         let total_counter = total_counter.clone();
