@@ -208,7 +208,7 @@ async fn crawl_url(url: &str, state: &CrawlerState) -> Result<(), Box<dyn Error>
 async fn spawn_url(url: String, state: &CrawlerState) {
     if let Err(err) = crawl_url(&url, state).await {
         state.err_counter.fetch_add(1, Ordering::Relaxed);
-        if state.tid < 10 {
+        if state.tid < 1 {
             println!("error crawling {}: {:?}", url, err);
         }
     }
@@ -256,7 +256,7 @@ fn crawler(
     url_counter: Arc<AtomicUsize>,
     err_counter: Arc<AtomicUsize>,
 ) {
-    // core_affinity::set_for_current(coreid);
+    core_affinity::set_for_current(coreid);
     // TODO: optimize request size
     let client = Client::builder()
         .user_agent("Rustbot/0.2")
