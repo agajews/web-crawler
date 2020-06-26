@@ -36,7 +36,7 @@ use futures_util::StreamExt;
 const ROOT_SET: [&str; 4] = [
     "https://columbia.edu",
     "https://harvard.edu",
-    "https://stanford.edu",
+    "https://mit.edu",
     "https://cam.ac.uk",
 ];
 
@@ -96,9 +96,9 @@ impl<T> TaskHandler<T> {
         self.pool[j % self.pool.len()].try_lock().ok()?.pop_front()
     }
 
-    fn push(&self, task: T) {
+    fn push(&self, task: T, d: usize) {
         // let j = rand::thread_rng().gen::<usize>() % self.pool.len();
-        self.pool[self.i].lock().unwrap().push_back(task);
+        self.pool[d % self.pool.len()].lock().unwrap().push_back(task);
     }
 }
 
@@ -186,8 +186,11 @@ fn add_links(source: &Url, document: &str, state: &CrawlerState, handler: &TaskH
         let h = hash64(url.as_str());
         if !state.seen.maybe_contains(h) {
             state.seen.insert(h);
-            handler.push(url.into_string());
-            state.total_counter.fetch_add(1, Ordering::Relaxed);
+            if let Some(host) = url.host_str() {
+                let d = hash64(host);
+                handler.push(url.into_string(), d as usize);
+                state.total_counter.fetch_add(1, Ordering::Relaxed);
+            }
         }
     }
 }
