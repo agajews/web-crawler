@@ -40,7 +40,7 @@ const ROOT_SET: [&str; 4] = [
     "https://cam.ac.uk",
 ];
 
-const BLOOM_BYTES: usize = 10_000_000_0;
+const BLOOM_BYTES: usize = 10_000_000_000;
 const EST_URLS: usize = 1_000_000_000;
 
 lazy_static! {
@@ -144,6 +144,18 @@ fn is_academic(url: &Url, academic_re: &Regex) -> bool {
 fn clearly_not_html(url: &str) -> bool {
     url.ends_with(".css") ||
         url.ends_with(".js") ||
+        url.ends_with(".mp4") ||
+        url.ends_with(".m4v") ||
+        url.ends_with(".dmg") ||
+        url.ends_with(".pt") ||
+        url.ends_with(".vdi") ||
+        url.ends_with(".ova") ||
+        url.ends_with(".m2ts") ||
+        url.ends_with(".rmvb") ||
+        url.ends_with(".npz") ||
+        url.ends_with(".7z") ||
+        url.ends_with(".gz") ||
+        url.ends_with(".gztar") ||
         url.ends_with(".pdf") ||
         url.ends_with(".png") ||
         url.ends_with(".PNG") ||
