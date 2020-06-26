@@ -342,8 +342,6 @@ async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, id: usi
         if n_urls % 100 == 0 {
             drop(client);
             client = build_client();
-        }
-        if n_urls % 1000 == 0 {
             drop(robots);
             robots = BTreeMap::new();
         }
