@@ -28,7 +28,6 @@ use core_affinity::CoreId;
 use rand;
 use rand::Rng;
 use futures_util::StreamExt;
-use robotstxt::DefaultMatcher;
 
 // variables to set:
 // META_DIR - directory of metadata databases
@@ -49,6 +48,7 @@ const EST_URLS: usize = 1_000_000_000;
 lazy_static! {
     static ref ACADEMIC_RE: Regex = Regex::new(r"^.+\.(edu|ac\.??)$").unwrap();
     static ref LINK_RE: Regex = Regex::new("href=['\"][^'\"]+['\"]").unwrap();
+    static ref DISALLOW_RE: Regex = Regex::new(r"^Disallow: ([^\s]+)").unwrap();
 }
 
 struct TaskPool<T> {
@@ -144,7 +144,7 @@ fn is_academic(url: &Url, academic_re: &Regex) -> bool {
 //     }
 // }
 
-async fn fetch_robots(url: &Url, client: &Client) -> Option<String> {
+async fn fetch_robots(url: &Url, client: &Client, state: &CrawlerState) -> Option<Regex> {
     let res = client.get(url.join("/robots.txt").ok()?).send().await.ok()?;
     let mut stream = res.bytes_stream();
     let mut total_len: usize = 0;
@@ -156,16 +156,38 @@ async fn fetch_robots(url: &Url, client: &Client) -> Option<String> {
         }
         data.extend_from_slice(&chunk);
     }
-    String::from_utf8(data).ok()
+    let robots = String::from_utf8(data).ok()?;
+    let mut prefixes = Vec::new();
+    let mut should_match = false;
+    for line in robots.lines() {
+        if line.starts_with("User-agent: ") {
+            should_match = line.starts_with("User-agent: *") || line.starts_with("User-agent: Rustbot");
+            continue;
+        }
+        if should_match {
+            match state.disallow_re.captures(line) {
+                Some(caps) => match caps.get(1) {
+                    Some(prefix) => prefixes.push(format!("({})", prefix.as_str())),
+                    None => continue,
+                },
+                None => continue,
+            }
+        }
+    }
+    if prefixes.is_empty() {
+        return None;
+    }
+    let match_str = format!("^({})", prefixes.join("|"));
+    // println!("{}", match_str);
+    Regex::new(&match_str).ok()
 }
 
-fn match_url(url: &Url, robots: &Option<String>) -> bool {
+fn match_url(url: &Url, robots: &Option<Regex>) -> bool {
     let robots = match robots {
         Some(robots) => robots,
         None => return true,
     };
-    let mut matcher = DefaultMatcher::default();
-    matcher.one_agent_allowed_by_robots(robots, USER_AGENT, url.as_str())
+    !robots.is_match(url.path())
 }
 
 async fn robots_allowed(url: &Url, client: &Client, state: &CrawlerState) -> bool {
@@ -179,7 +201,7 @@ async fn robots_allowed(url: &Url, client: &Client, state: &CrawlerState) -> boo
             return match_url(url, robots);
         }
     }
-    let robots = fetch_robots(url, client).await;
+    let robots = fetch_robots(url, client, state).await;
     let mut robots_map = state.robots.lock().unwrap();
     robots_map.insert(String::from(host), robots);
     match_url(url, robots_map.get(host).unwrap())
@@ -190,6 +212,7 @@ fn clearly_not_html(url: &str) -> bool {
         url.ends_with(".js") ||
         url.ends_with(".mp4") ||
         url.ends_with(".m4v") ||
+        url.ends_with(".mov") ||
         url.ends_with(".dmg") ||
         url.ends_with(".pt") ||
         url.ends_with(".vdi") ||
@@ -329,7 +352,8 @@ struct CrawlerState {
     err_counter: Arc<AtomicUsize>,
     academic_re: Regex,
     link_re: Regex,
-    robots: Mutex<BTreeMap<String, Option<String>>>,
+    disallow_re: Regex,
+    robots: Mutex<BTreeMap<String, Option<Regex>>>,
 }
 
 fn crawler_core(
@@ -345,6 +369,7 @@ fn crawler_core(
     core_affinity::set_for_current(coreid);
     let academic_re = ACADEMIC_RE.clone();
     let link_re = LINK_RE.clone();
+    let disallow_re = DISALLOW_RE.clone();
     let robots = Mutex::new(BTreeMap::new());
 
     let mut rt = runtime::Builder::new()
@@ -363,6 +388,7 @@ fn crawler_core(
         err_counter,
         academic_re,
         link_re,
+        disallow_re,
         robots,
     });
 
