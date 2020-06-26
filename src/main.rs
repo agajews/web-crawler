@@ -39,7 +39,7 @@ const ROOT_SET: [&str; 4] = [
     "https://cam.ac.uk",
 ];
 
-const BLOOM_BYTES: usize = 10_000_000_000;
+const BLOOM_BYTES: usize = 10_000_000_0;
 const EST_URLS: usize = 1_000_000_000;
 
 lazy_static! {
@@ -180,21 +180,30 @@ fn add_links(source: &Url, document: &str, state: &CrawlerState, handler: &TaskH
 
 async fn crawl_url(url: &str, client: &Client, state: &CrawlerState, handler: &TaskHandler<String>) -> Result<(), Box<dyn Error>> {
     url.parse::<Uri>()?;
-    let head = client.head(url).send().await?;
-    let headers = head.headers();
+
+    let start = Instant::now();
+    let res = client.get(url)
+        .send()
+        .await?;
+    let headers = res.headers();
     if let Some(content_type) = headers.get("Content-Type") {
         let content_type = content_type.to_str()?;
         if !content_type.starts_with("text/html") {
             return Ok(());
         }
     }
-
-    let start = Instant::now();
-    let res = client.get(url)
-        .send()
-        .await?;
-    state.time_counter.fetch_add(start.elapsed().as_millis() as usize, Ordering::Relaxed);
+    let content_length = match res.content_length() {
+        Some(x) => x,
+        None => return Ok(())
+    };
+    if content_length > 1_000_000 {
+        println!("megawebsite of length {}: {}", url, content_length);
+    }
+    if content_length > 256_000 {
+        return Ok(());
+    }
     let res = res.text().await?;
+    state.time_counter.fetch_add(start.elapsed().as_millis() as usize, Ordering::Relaxed);
 
     let source = Url::parse(url)?;
     if is_academic(&source, &state.academic_re) {
