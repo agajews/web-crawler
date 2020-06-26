@@ -204,18 +204,26 @@ async fn crawl_url(url: &str, client: &Client, state: &CrawlerState, handler: &T
     Ok(())
 }
 
-async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, id: usize) {
-    delay_for(Duration::from_millis(100 * id as u64)).await;
-    // TODO: optimize request size
-    let client = Client::builder()
+fn build_client() -> Client {
+    Client::builder()
         .user_agent("Rustbot/0.2")
         .danger_accept_invalid_certs(true)
         .danger_accept_invalid_hostnames(true)
         .redirect(Policy::limited(100))
         .timeout(Duration::from_secs(60))
-        .build().unwrap();
+        .build().unwrap()
+}
 
-    loop {
+async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, id: usize) {
+    delay_for(Duration::from_millis(100 * id as u64)).await;
+    // TODO: optimize request size
+    let mut client = build_client();
+
+    for i in 0.. {
+        if (i % 100 + 1) == 0 as usize {
+            drop(client);
+            client = build_client();
+        }
         let url = match handler.pop() {
             Some(url) => url,
             None => { delay_for(Duration::from_millis(100)).await; continue; },
