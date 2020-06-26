@@ -218,11 +218,11 @@ fn build_client() -> Client {
 async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, id: usize) {
     delay_for(Duration::from_millis(100 * id as u64)).await;
     for i in 0.. {
-        let client = build_client();
         let url = match handler.pop() {
             Some(url) => url,
             None => { delay_for(Duration::from_millis(100)).await; continue; },
         };
+        let client = build_client();
         if let Err(err) = crawl_url(&url, &client, &state, &handler).await {
             state.err_counter.fetch_add(1, Ordering::Relaxed);
             if state.tid < 1 {
