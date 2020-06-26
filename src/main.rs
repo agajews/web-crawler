@@ -144,7 +144,7 @@ fn is_academic(url: &Url, academic_re: &Regex) -> bool {
 //     }
 // }
 
-async fn fetch_robots(url: &Url, client: &Client, state: &CrawlerState) -> Option<Regex> {
+async fn fetch_robots(url: &Url, client: &Client, state: &CrawlerState) -> Option<Vec<String>> {
     let res = client.get(url.join("/robots.txt").ok()?).send().await.ok()?;
     let mut stream = res.bytes_stream();
     let mut total_len: usize = 0;
@@ -167,7 +167,7 @@ async fn fetch_robots(url: &Url, client: &Client, state: &CrawlerState) -> Optio
         if should_match {
             match state.disallow_re.captures(line) {
                 Some(caps) => match caps.get(1) {
-                    Some(prefix) => prefixes.push(format!("({})", prefix.as_str())),
+                    Some(prefix) => prefixes.push(String::from(prefix.as_str())),
                     None => continue,
                 },
                 None => continue,
@@ -177,29 +177,33 @@ async fn fetch_robots(url: &Url, client: &Client, state: &CrawlerState) -> Optio
     if prefixes.is_empty() {
         return None;
     }
-    let match_str = format!("^({})", prefixes.join("|"));
-    // println!("{}", match_str);
-    Regex::new(&match_str).ok()
+    Some(prefixes)
 }
 
-fn match_url(url: &Url, regex: &Option<Regex>) -> bool {
-    let regex = match regex {
-        Some(regex) => regex,
+fn match_url(url: &Url, prefixes: &Option<Vec<String>>) -> bool {
+    let prefixes = match prefixes {
+        Some(prefixes) => prefixes,
         None => return true,
     };
-    !regex.is_match(url.path())
+    let path = url.path();
+    for prefix in prefixes {
+        if path.starts_with(prefix) {
+            return false;
+        }
+    }
+    return true;
 }
 
-async fn robots_allowed(url: &Url, client: &Client, state: &CrawlerState, robots: &mut BTreeMap<String, Option<Regex>>) -> bool {
+async fn robots_allowed(url: &Url, client: &Client, state: &CrawlerState, robots: &mut BTreeMap<String, Option<Vec<String>>>) -> bool {
     let host = match url.host_str() {
         Some(host) => host,
         None => return false,
     };
-    if let Some(regex) = robots.get(host) {
-        return match_url(url, regex);
+    if let Some(prefixes) = robots.get(host) {
+        return match_url(url, prefixes);
     }
-    let regex = fetch_robots(url, client, state).await;
-    robots.insert(String::from(host), regex);
+    let prefixes = fetch_robots(url, client, state).await;
+    robots.insert(String::from(host), prefixes);
     match_url(url, robots.get(host).unwrap())
 }
 
@@ -263,7 +267,7 @@ fn add_links(source: &Url, document: &str, state: &CrawlerState, handler: &TaskH
 async fn crawl_url(
     url: &str,
     client: &Client,
-    robots: &mut BTreeMap<String, Option<Regex>>,
+    robots: &mut BTreeMap<String, Option<Vec<String>>>,
     state: &CrawlerState,
     handler: &TaskHandler<String>,
 ) -> Result<(), Box<dyn Error>> {
