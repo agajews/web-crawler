@@ -164,7 +164,8 @@ fn clearly_not_html(url: &str) -> bool {
         url.ends_with(".jpg") ||
         url.ends_with(".JPG") ||
         url.ends_with(".gif") ||
-        url.ends_with(".GIF")
+        url.ends_with(".GIF") ||
+        !url.starts_with("http")
 }
 
 fn add_links(source: &Url, document: &str, state: &CrawlerState, handler: &TaskHandler<String>) {
