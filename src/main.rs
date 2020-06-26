@@ -1,7 +1,7 @@
 use lazy_static::lazy_static;
 use std::error::Error;
-// use std::io;
-// use std::io::ErrorKind;
+use std::io;
+use std::io::ErrorKind;
 use reqwest::Client;
 use reqwest::redirect::Policy;
 // use select::document::Document;
@@ -10,7 +10,7 @@ use url::Url;
 use std::thread;
 use std::sync::{Arc, Mutex};
 use std::env;
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use regex::Regex;
 // use uuid::Uuid;
 // use std::path::PathBuf;
@@ -28,10 +28,13 @@ use core_affinity::CoreId;
 use rand;
 use rand::Rng;
 use futures_util::StreamExt;
+use robotstxt::DefaultMatcher;
 
 // variables to set:
 // META_DIR - directory of metadata databases
 // INDEX_DIR - directory of document indexes
+
+const USER_AGENT: &str = "Rustbot/0.3";
 
 const ROOT_SET: [&str; 4] = [
     "https://columbia.edu",
@@ -141,6 +144,47 @@ fn is_academic(url: &Url, academic_re: &Regex) -> bool {
 //     }
 // }
 
+async fn fetch_robots(url: &Url, client: &Client) -> Option<String> {
+    let res = client.get(url.join("/robots.txt").ok()?).send().await.ok()?;
+    let mut stream = res.bytes_stream();
+    let mut total_len: usize = 0;
+    let mut data = Vec::new();
+    while let Some(Ok(chunk)) = stream.next().await {
+        total_len += chunk.len();
+        if total_len > 256_000 {
+            return None;
+        }
+        data.extend_from_slice(&chunk);
+    }
+    String::from_utf8(data).ok()
+}
+
+fn match_url(url: &Url, robots: &Option<String>) -> bool {
+    let robots = match robots {
+        Some(robots) => robots,
+        None => return true,
+    };
+    let mut matcher = DefaultMatcher::default();
+    matcher.one_agent_allowed_by_robots(robots, USER_AGENT, url.as_str())
+}
+
+async fn robots_allowed(url: &Url, client: &Client, state: &CrawlerState) -> bool {
+    let host = match url.host_str() {
+        Some(host) => host,
+        None => return false,
+    };
+    {
+        let robots_map = state.robots.lock().unwrap();
+        if let Some(robots) = robots_map.get(host) {
+            return match_url(url, robots);
+        }
+    }
+    let robots = fetch_robots(url, client).await;
+    let mut robots_map = state.robots.lock().unwrap();
+    robots_map.insert(String::from(host), robots);
+    match_url(url, robots_map.get(host).unwrap())
+}
+
 fn clearly_not_html(url: &str) -> bool {
     url.ends_with(".css") ||
         url.ends_with(".js") ||
@@ -153,6 +197,8 @@ fn clearly_not_html(url: &str) -> bool {
         url.ends_with(".m2ts") ||
         url.ends_with(".rmvb") ||
         url.ends_with(".npz") ||
+        url.ends_with(".mat") ||
+        url.ends_with(".data") ||
         url.ends_with(".7z") ||
         url.ends_with(".gz") ||
         url.ends_with(".gztar") ||
@@ -197,6 +243,11 @@ fn add_links(source: &Url, document: &str, state: &CrawlerState, handler: &TaskH
 
 async fn crawl_url(url: &str, client: &Client, state: &CrawlerState, handler: &TaskHandler<String>) -> Result<(), Box<dyn Error>> {
     url.parse::<Uri>()?;
+    let source = Url::parse(url)?;
+
+    if !robots_allowed(&source, client, state).await {
+        return Err(Box::new(io::Error::new(ErrorKind::Other, "blocked by robots.txt")));
+    }
 
     let start = Instant::now();
     let res = client.get(url)
@@ -206,18 +257,15 @@ async fn crawl_url(url: &str, client: &Client, state: &CrawlerState, handler: &T
     if let Some(content_type) = headers.get("Content-Type") {
         let content_type = content_type.to_str()?;
         if !content_type.starts_with("text/html") {
-            return Ok(());
+            return Err(Box::new(io::Error::new(ErrorKind::Other, format!("wrong content type {}", content_type))));
         }
     }
-    let content_length = match res.content_length() {
-        Some(x) => x,
-        None => return Ok(())
-    };
-    if content_length > 100_000_000 {
-        println!("megawebsite of length {}: {}", url, content_length);
+    if let Some(content_length) = res.content_length() {
+        if content_length > 100_000_000 {
+            println!("megawebsite of length {}: {}", url, content_length);
+        }
     }
 
-    let source = Url::parse(url)?;
     let should_add_links = is_academic(&source, &state.academic_re);
 
     let mut stream = res.bytes_stream();
@@ -240,7 +288,7 @@ async fn crawl_url(url: &str, client: &Client, state: &CrawlerState, handler: &T
 fn build_client() -> Client {
     // TODO: optimize request size
     Client::builder()
-        .user_agent("Rustbot/0.2")
+        .user_agent(USER_AGENT)
         .danger_accept_invalid_certs(true)
         .danger_accept_invalid_hostnames(true)
         .redirect(Policy::limited(100))
@@ -259,7 +307,7 @@ async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, id: usi
         };
         if let Err(err) = crawl_url(&url, &client, &state, &handler).await {
             state.err_counter.fetch_add(1, Ordering::Relaxed);
-            if state.tid < 1 {
+            if state.tid < 16 {
                 println!("error crawling {}: {:?}", url, err);
             }
         }
@@ -281,6 +329,7 @@ struct CrawlerState {
     err_counter: Arc<AtomicUsize>,
     academic_re: Regex,
     link_re: Regex,
+    robots: Mutex<BTreeMap<String, Option<String>>>,
 }
 
 fn crawler_core(
@@ -296,6 +345,7 @@ fn crawler_core(
     core_affinity::set_for_current(coreid);
     let academic_re = ACADEMIC_RE.clone();
     let link_re = LINK_RE.clone();
+    let robots = Mutex::new(BTreeMap::new());
 
     let mut rt = runtime::Builder::new()
         .basic_scheduler()
@@ -313,6 +363,7 @@ fn crawler_core(
         err_counter,
         academic_re,
         link_re,
+        robots,
     });
 
     for (id, handler) in handlers.into_iter().enumerate() {

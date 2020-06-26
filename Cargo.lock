@@ -1298,6 +1298,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "robotstxt"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7b2fdf55ba4aa54a3fca01b9740f17f282b15af36714f5277f6c361527fab1c"
+
+[[package]]
 name = "rustc-demangle"
 version = "0.1.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1834,6 +1840,7 @@ dependencies = [
  "rand 0.7.3",
  "regex",
  "reqwest",
+ "robotstxt",
  "select",
  "serde",
  "tokio",
