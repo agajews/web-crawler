@@ -199,7 +199,7 @@ async fn crawl_url(url: &str, client: &Client, state: &CrawlerState, handler: &T
     if content_length > 1_000_000_000 {
         println!("megawebsite of length {}: {}", url, content_length);
     }
-    if content_length > 256_000 {
+    if content_length > 10_000_000 {
         return Ok(());
     }
     let res = res.text().await?;
