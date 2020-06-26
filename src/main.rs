@@ -196,10 +196,8 @@ async fn crawl_url(url: &str, client: &Client, state: &CrawlerState, handler: &T
         Some(x) => x,
         None => return Ok(())
     };
-    if content_length > 1_000_000_000 {
-        println!("megawebsite of length {}: {}", url, content_length);
-    }
     if content_length > 10_000_000 {
+        println!("megawebsite of length {}: {}", url, content_length);
         return Ok(());
     }
     let res = res.text().await?;
