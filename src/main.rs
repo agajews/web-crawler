@@ -330,10 +330,23 @@ async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, id: usi
     let mut n_urls = 0;
     let mut client = build_client();
     let mut robots = BTreeMap::new();
+    let mut was_active = false;
     loop {
         let url = match handler.pop() {
-            Some(url) => url,
-            None => { delay_for(Duration::from_millis(100)).await; continue; },
+            Some(url) => {
+                if !was_active {
+                    state.active_counter.fetch_add(1, Ordering::Relaxed);
+                    was_active = true;
+                }
+                url
+            },
+            None => {
+                if was_active {
+                    state.active_counter.fetch_sub(1, Ordering::Relaxed);
+                    was_active = false;
+                }
+                delay_for(Duration::from_millis(100)).await; continue;
+            },
         };
         if let Err(err) = crawl_url(&url, &client, &mut robots, &state, &handler).await {
             state.err_counter.fetch_add(1, Ordering::Relaxed);
@@ -357,6 +370,7 @@ struct CrawlerState {
     total_counter: Arc<AtomicUsize>,
     url_counter: Arc<AtomicUsize>,
     err_counter: Arc<AtomicUsize>,
+    active_counter: Arc<AtomicUsize>,
     academic_re: Regex,
     link_re: Regex,
     disallow_re: Regex,
@@ -371,6 +385,7 @@ fn crawler_core(
     total_counter: Arc<AtomicUsize>,
     url_counter: Arc<AtomicUsize>,
     err_counter: Arc<AtomicUsize>,
+    active_counter: Arc<AtomicUsize>,
 ) {
     core_affinity::set_for_current(coreid);
     let academic_re = ACADEMIC_RE.clone();
@@ -391,6 +406,7 @@ fn crawler_core(
         total_counter,
         url_counter,
         err_counter,
+        active_counter,
         academic_re,
         link_re,
         disallow_re,
@@ -407,7 +423,7 @@ fn crawler_core(
 
 }
 
-fn url_monitor(time_counter: Arc<AtomicUsize>, total_counter: Arc<AtomicUsize>, url_counter: Arc<AtomicUsize>, err_counter: Arc<AtomicUsize>) {
+fn url_monitor(time_counter: Arc<AtomicUsize>, total_counter: Arc<AtomicUsize>, url_counter: Arc<AtomicUsize>, err_counter: Arc<AtomicUsize>, active_counter: Arc<AtomicUsize>) {
     let mut old_time = time_counter.load(Ordering::Relaxed);
     let mut old_count = url_counter.load(Ordering::Relaxed);
     let mut old_err = err_counter.load(Ordering::Relaxed);
@@ -418,11 +434,13 @@ fn url_monitor(time_counter: Arc<AtomicUsize>, total_counter: Arc<AtomicUsize>, 
         let new_total = total_counter.load(Ordering::Relaxed);
         let new_count = url_counter.load(Ordering::Relaxed);
         let new_err = err_counter.load(Ordering::Relaxed);
+        let new_active = active_counter.load(Ordering::Relaxed);
         println!(
-            "{} urls/s, {}% errs, {}ms responses, crawled {}, seen {}",
+            "{} urls/s, {}% errs, {}ms responses, {} active, crawled {}, seen {}",
              new_count - old_count,
              (new_err - old_err) as f32 / (new_count - old_count) as f32 * 100.0,
              (new_time - old_time) as f32 / (new_count - old_count) as f32,
+             new_active,
              new_count,
              new_total,
         );
@@ -437,6 +455,7 @@ fn main() {
     let total_counter = Arc::new(AtomicUsize::new(0));
     let url_counter = Arc::new(AtomicUsize::new(0));
     let err_counter = Arc::new(AtomicUsize::new(0));
+    let active_counter = Arc::new(AtomicUsize::new(0));
     let args = env::args().collect::<Vec<_>>();
     let max_conns: usize = args[1].parse().unwrap();
     let core_ids = core_affinity::get_core_ids().unwrap();
@@ -450,7 +469,8 @@ fn main() {
         let total_counter = total_counter.clone();
         let url_counter = url_counter.clone();
         let err_counter = err_counter.clone();
-        thread::spawn(move || url_monitor(time_counter, total_counter, url_counter, err_counter) )
+        let active_counter = active_counter.clone();
+        thread::spawn(move || url_monitor(time_counter, total_counter, url_counter, err_counter, active_counter) )
     };
     let _threads = core_ids.into_iter().map(|coreid| {
         println!("spawned thread {}", coreid.id + 1);
@@ -463,8 +483,9 @@ fn main() {
         let total_counter = total_counter.clone();
         let url_counter = url_counter.clone();
         let err_counter = err_counter.clone();
+        let active_counter = active_counter.clone();
         let seen = seen.clone();
-        thread::spawn(move || crawler_core(coreid, max_conns, handlers, seen, time_counter, total_counter, url_counter, err_counter))
+        thread::spawn(move || crawler_core(coreid, max_conns, handlers, seen, time_counter, total_counter, url_counter, err_counter, active_counter))
     }).collect::<Vec<_>>();
 
     let _res = monitor_handle.join();
