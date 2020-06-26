@@ -330,7 +330,7 @@ async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, id: usi
         };
         if let Err(err) = crawl_url(&url, &client, &state, &handler).await {
             state.err_counter.fetch_add(1, Ordering::Relaxed);
-            if state.tid < 16 {
+            if state.tid < 1 {
                 println!("error crawling {}: {:?}", url, err);
             }
         }
