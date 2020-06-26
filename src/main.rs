@@ -182,29 +182,25 @@ async fn fetch_robots(url: &Url, client: &Client, state: &CrawlerState) -> Optio
     Regex::new(&match_str).ok()
 }
 
-fn match_url(url: &Url, robots: &Option<Regex>) -> bool {
-    let robots = match robots {
-        Some(robots) => robots,
+fn match_url(url: &Url, regex: &Option<Regex>) -> bool {
+    let regex = match regex {
+        Some(regex) => regex,
         None => return true,
     };
-    !robots.is_match(url.path())
+    !regex.is_match(url.path())
 }
 
-async fn robots_allowed(url: &Url, client: &Client, state: &CrawlerState) -> bool {
+async fn robots_allowed(url: &Url, client: &Client, state: &CrawlerState, robots: &mut BTreeMap<String, Option<Regex>>) -> bool {
     let host = match url.host_str() {
         Some(host) => host,
         None => return false,
     };
-    {
-        let robots_map = state.robots.lock().unwrap();
-        if let Some(robots) = robots_map.get(host) {
-            return match_url(url, robots);
-        }
+    if let Some(regex) = robots.get(host) {
+        return match_url(url, regex);
     }
-    let robots = fetch_robots(url, client, state).await;
-    let mut robots_map = state.robots.lock().unwrap();
-    robots_map.insert(String::from(host), robots);
-    match_url(url, robots_map.get(host).unwrap())
+    let regex = fetch_robots(url, client, state).await;
+    robots.insert(String::from(host), regex);
+    match_url(url, robots.get(host).unwrap())
 }
 
 fn clearly_not_html(url: &str) -> bool {
@@ -264,11 +260,17 @@ fn add_links(source: &Url, document: &str, state: &CrawlerState, handler: &TaskH
     }
 }
 
-async fn crawl_url(url: &str, client: &Client, state: &CrawlerState, handler: &TaskHandler<String>) -> Result<(), Box<dyn Error>> {
+async fn crawl_url(
+    url: &str,
+    client: &Client,
+    robots: &mut BTreeMap<String, Option<Regex>>,
+    state: &CrawlerState,
+    handler: &TaskHandler<String>,
+) -> Result<(), Box<dyn Error>> {
     url.parse::<Uri>()?;
     let source = Url::parse(url)?;
 
-    if !robots_allowed(&source, client, state).await {
+    if !robots_allowed(&source, client, state, robots).await {
         return Err(Box::new(io::Error::new(ErrorKind::Other, "blocked by robots.txt")));
     }
 
@@ -323,12 +325,13 @@ async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, id: usi
     delay_for(Duration::from_millis(100 * id as u64)).await;
     let mut n_urls = 0;
     let mut client = build_client();
+    let mut robots = BTreeMap::new();
     loop {
         let url = match handler.pop() {
             Some(url) => url,
             None => { delay_for(Duration::from_millis(100)).await; continue; },
         };
-        if let Err(err) = crawl_url(&url, &client, &state, &handler).await {
+        if let Err(err) = crawl_url(&url, &client, &mut robots, &state, &handler).await {
             state.err_counter.fetch_add(1, Ordering::Relaxed);
             if state.tid < 1 {
                 println!("error crawling {}: {:?}", url, err);
@@ -339,6 +342,10 @@ async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, id: usi
         if n_urls % 100 == 0 {
             drop(client);
             client = build_client();
+        }
+        if n_urls % 1000 == 0 {
+            drop(robots);
+            robots = BTreeMap::new();
         }
     }
 }
@@ -353,7 +360,6 @@ struct CrawlerState {
     academic_re: Regex,
     link_re: Regex,
     disallow_re: Regex,
-    robots: Mutex<BTreeMap<String, Option<Regex>>>,
 }
 
 fn crawler_core(
@@ -370,7 +376,6 @@ fn crawler_core(
     let academic_re = ACADEMIC_RE.clone();
     let link_re = LINK_RE.clone();
     let disallow_re = DISALLOW_RE.clone();
-    let robots = Mutex::new(BTreeMap::new());
 
     let mut rt = runtime::Builder::new()
         .basic_scheduler()
@@ -389,7 +394,6 @@ fn crawler_core(
         academic_re,
         link_re,
         disallow_re,
-        robots,
     });
 
     for (id, handler) in handlers.into_iter().enumerate() {
