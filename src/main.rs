@@ -39,7 +39,7 @@ const ROOT_SET: [&str; 4] = [
     "https://cam.ac.uk",
 ];
 
-const BLOOM_BYTES: usize = 10_000_000_0;
+const BLOOM_BYTES: usize = 10_000_000_000;
 const EST_URLS: usize = 1_000_000_000;
 
 lazy_static! {
@@ -196,7 +196,7 @@ async fn crawl_url(url: &str, client: &Client, state: &CrawlerState, handler: &T
         Some(x) => x,
         None => return Ok(())
     };
-    if content_length > 1_000_000 {
+    if content_length > 1_000_000_000 {
         println!("megawebsite of length {}: {}", url, content_length);
     }
     if content_length > 256_000 {
