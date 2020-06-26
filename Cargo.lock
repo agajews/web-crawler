@@ -1828,6 +1828,7 @@ dependencies = [
  "crossbeam",
  "fasthash",
  "futures",
+ "futures-util",
  "http",
  "lazy_static",
  "rand 0.7.3",

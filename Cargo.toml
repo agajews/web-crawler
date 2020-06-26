@@ -19,6 +19,7 @@ fasthash = "0.4.0"
 tokio = { version = "0.2", features = ["macros", "rt-core", "time", "io-driver"] }
 rand = "0.7.3"
 http = "0.2.1"
-reqwest = { version = "0.10.6", features = ["blocking", "native-tls", "trust-dns"] }
+reqwest = { version = "0.10.6", features = ["blocking", "native-tls", "trust-dns", "stream"] }
 futures = "0.3.5"
 core_affinity = "0.5.10"
+futures-util = "0.3.5"

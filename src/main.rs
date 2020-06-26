@@ -27,6 +27,7 @@ use core_affinity;
 use core_affinity::CoreId;
 use rand;
 use rand::Rng;
+use futures_util::StreamExt;
 
 // variables to set:
 // META_DIR - directory of metadata databases
@@ -39,7 +40,7 @@ const ROOT_SET: [&str; 4] = [
     "https://cam.ac.uk",
 ];
 
-const BLOOM_BYTES: usize = 10_000_000_000;
+const BLOOM_BYTES: usize = 10_000_000_0;
 const EST_URLS: usize = 1_000_000_000;
 
 lazy_static! {
@@ -196,17 +197,26 @@ async fn crawl_url(url: &str, client: &Client, state: &CrawlerState, handler: &T
         Some(x) => x,
         None => return Ok(())
     };
-    if content_length > 10_000_000 {
+    if content_length > 100_000_000 {
         println!("megawebsite of length {}: {}", url, content_length);
-        return Ok(());
     }
-    let res = res.text().await?;
-    state.time_counter.fetch_add(start.elapsed().as_millis() as usize, Ordering::Relaxed);
 
     let source = Url::parse(url)?;
-    if is_academic(&source, &state.academic_re) {
-        add_links(&source, res.as_str(), state, handler);
+    let should_add_links = is_academic(&source, &state.academic_re);
+
+    let mut stream = res.bytes_stream();
+    let mut total_len: usize = 0;
+    while let Some(Ok(chunk)) = stream.next().await {
+        total_len += chunk.len();
+        if total_len > 256_000 {
+            break;
+        }
+        if should_add_links {
+            add_links(&source, std::str::from_utf8(&chunk)?, state, handler);
+        }
     }
+
+    state.time_counter.fetch_add(start.elapsed().as_millis() as usize, Ordering::Relaxed);
 
     Ok(())
 }
