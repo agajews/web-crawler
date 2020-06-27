@@ -1,7 +1,7 @@
 use lazy_static::lazy_static;
 use std::error::Error;
-use std::io;
-use std::io::ErrorKind;
+// use std::io;
+// use std::io::ErrorKind;
 use reqwest::Client;
 use reqwest::redirect::Policy;
 // use select::document::Document;
@@ -200,6 +200,7 @@ async fn robots_allowed(url: &Url, client: &Client, state: &CrawlerState, robots
         None => return false,
     };
     if let Some(prefixes) = robots.get(host) {
+        state.robots_hit_counter.fetch_add(1, Ordering::Relaxed);
         return match_url(url, prefixes);
     }
     let prefixes = fetch_robots(url, client, state).await;
@@ -373,6 +374,7 @@ struct CrawlerState {
     url_counter: Arc<AtomicUsize>,
     err_counter: Arc<AtomicUsize>,
     active_counter: Arc<AtomicUsize>,
+    robots_hit_counter: Arc<AtomicUsize>,
     academic_re: Regex,
     link_re: Regex,
     disallow_re: Regex,
@@ -388,6 +390,7 @@ fn crawler_core(
     url_counter: Arc<AtomicUsize>,
     err_counter: Arc<AtomicUsize>,
     active_counter: Arc<AtomicUsize>,
+    robots_hit_counter: Arc<AtomicUsize>,
 ) {
     core_affinity::set_for_current(coreid);
     let academic_re = ACADEMIC_RE.clone();
@@ -409,6 +412,7 @@ fn crawler_core(
         url_counter,
         err_counter,
         active_counter,
+        robots_hit_counter,
         academic_re,
         link_re,
         disallow_re,
@@ -425,10 +429,11 @@ fn crawler_core(
 
 }
 
-fn url_monitor(time_counter: Arc<AtomicUsize>, total_counter: Arc<AtomicUsize>, url_counter: Arc<AtomicUsize>, err_counter: Arc<AtomicUsize>, active_counter: Arc<AtomicUsize>) {
+fn url_monitor(time_counter: Arc<AtomicUsize>, total_counter: Arc<AtomicUsize>, url_counter: Arc<AtomicUsize>, err_counter: Arc<AtomicUsize>, active_counter: Arc<AtomicUsize>, robots_hit_counter: Arc<AtomicUsize>) {
     let mut old_time = time_counter.load(Ordering::Relaxed);
     let mut old_count = url_counter.load(Ordering::Relaxed);
     let mut old_err = err_counter.load(Ordering::Relaxed);
+    let mut old_robots_hits = robots_hit_counter.load(Ordering::Relaxed);
     println!("monitoring crawl rate");
     loop {
         thread::sleep(Duration::from_millis(1000));
@@ -437,11 +442,13 @@ fn url_monitor(time_counter: Arc<AtomicUsize>, total_counter: Arc<AtomicUsize>, 
         let new_count = url_counter.load(Ordering::Relaxed);
         let new_err = err_counter.load(Ordering::Relaxed);
         let new_active = active_counter.load(Ordering::Relaxed);
+        let new_robots_hits = robots_hit_counter.load(Ordering::Relaxed);
         println!(
-            "{} urls/s, {}% errs, {}ms responses, {} active, crawled {}, seen {}",
+            "{} urls/s, {}% errs, {}ms responses, {}% robot hits, {} active, crawled {}, seen {}",
              new_count - old_count,
              (new_err - old_err) as f32 / (new_count - old_count) as f32 * 100.0,
              (new_time - old_time) as f32 / (new_count - old_count) as f32,
+             (new_robots_hits - old_robots_hits) as f32 / (new_count - old_count) as f32 * 100.0,
              new_active,
              new_count,
              new_total,
@@ -449,6 +456,7 @@ fn url_monitor(time_counter: Arc<AtomicUsize>, total_counter: Arc<AtomicUsize>, 
         old_time = new_time;
         old_count = new_count;
         old_err = new_err;
+        old_robots_hits = new_robots_hits;
     }
 }
 
@@ -458,6 +466,7 @@ fn main() {
     let url_counter = Arc::new(AtomicUsize::new(0));
     let err_counter = Arc::new(AtomicUsize::new(0));
     let active_counter = Arc::new(AtomicUsize::new(0));
+    let robots_hit_counter = Arc::new(AtomicUsize::new(0));
     let args = env::args().collect::<Vec<_>>();
     let max_conns: usize = args[1].parse().unwrap();
     let core_ids = core_affinity::get_core_ids().unwrap();
@@ -472,7 +481,8 @@ fn main() {
         let url_counter = url_counter.clone();
         let err_counter = err_counter.clone();
         let active_counter = active_counter.clone();
-        thread::spawn(move || url_monitor(time_counter, total_counter, url_counter, err_counter, active_counter) )
+        let robots_hit_counter = robots_hit_counter.clone();
+        thread::spawn(move || url_monitor(time_counter, total_counter, url_counter, err_counter, active_counter, robots_hit_counter) )
     };
     let _threads = core_ids.into_iter().map(|coreid| {
         println!("spawned thread {}", coreid.id + 1);
@@ -486,8 +496,9 @@ fn main() {
         let url_counter = url_counter.clone();
         let err_counter = err_counter.clone();
         let active_counter = active_counter.clone();
+        let robots_hit_counter = robots_hit_counter.clone();
         let seen = seen.clone();
-        thread::spawn(move || crawler_core(coreid, max_conns, handlers, seen, time_counter, total_counter, url_counter, err_counter, active_counter))
+        thread::spawn(move || crawler_core(coreid, max_conns, handlers, seen, time_counter, total_counter, url_counter, err_counter, active_counter, robots_hit_counter))
     }).collect::<Vec<_>>();
 
     let _res = monitor_handle.join();
