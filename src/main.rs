@@ -275,7 +275,8 @@ async fn crawl_url(
     let source = Url::parse(url)?;
 
     if !robots_allowed(&source, client, state, robots).await {
-        return Err(Box::new(io::Error::new(ErrorKind::Other, "blocked by robots.txt")));
+        // return Err(Box::new(io::Error::new(ErrorKind::Other, "blocked by robots.txt")));
+        return Ok(());
     }
 
     let start = Instant::now();
@@ -286,7 +287,8 @@ async fn crawl_url(
     if let Some(content_type) = headers.get("Content-Type") {
         let content_type = content_type.to_str()?;
         if !content_type.starts_with("text/html") {
-            return Err(Box::new(io::Error::new(ErrorKind::Other, format!("wrong content type {}", content_type))));
+            // return Err(Box::new(io::Error::new(ErrorKind::Other, format!("wrong content type {}", content_type))));
+            return Ok(());
         }
     }
     if let Some(content_length) = res.content_length() {
