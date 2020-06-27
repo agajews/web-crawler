@@ -325,8 +325,8 @@ fn build_client() -> Client {
         .build().unwrap()
 }
 
-async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, id: usize) {
-    delay_for(Duration::from_millis(100 * id as u64)).await;
+async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, _id: usize) {
+    // delay_for(Duration::from_millis(100 * id as u64)).await;
     let mut n_urls = 0;
     let mut client = build_client();
     let mut robots = BTreeMap::new();
