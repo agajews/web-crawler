@@ -13,7 +13,7 @@ use std::env;
 use std::collections::{BTreeMap, VecDeque};
 use regex::Regex;
 // use uuid::Uuid;
-// use std::path::PathBuf;
+use std::path::{Path ,PathBuf};
 use core::sync::atomic::{AtomicUsize, Ordering};
 // use web_index::{Meta, Index};
 use std::time::{Instant, Duration};
@@ -28,6 +28,10 @@ use core_affinity::CoreId;
 use rand;
 use rand::Rng;
 use futures_util::StreamExt;
+use bincode::{serialize, deserialize};
+use std::fs;
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 // variables to set:
 // META_DIR - directory of metadata databases
@@ -44,6 +48,7 @@ const ROOT_SET: [&str; 4] = [
 
 const BLOOM_BYTES: usize = 10_000_000_000;
 const EST_URLS: usize = 1_000_000_000;
+const SWAP_CAP: usize = 1_000;
 
 lazy_static! {
     static ref ACADEMIC_RE: Regex = Regex::new(r"^.+\.(edu|ac\.??)$").unwrap();
@@ -51,20 +56,81 @@ lazy_static! {
     static ref DISALLOW_RE: Regex = Regex::new(r"^Disallow: ([^\s]+)").unwrap();
 }
 
+struct DiskDeque<T> {
+    front: VecDeque<T>,
+    back: VecDeque<T>,
+    save_start: usize,
+    save_end: usize,
+    dir: PathBuf,
+    capacity: usize,
+}
+
+impl<T: Serialize + DeserializeOwned> DiskDeque<T> {
+    fn new<P: Into<PathBuf>>(dir: P, capacity: usize) -> Self {
+        let dir = dir.into();
+        fs::create_dir_all(&dir).unwrap();
+        DiskDeque {
+            front: VecDeque::new(),
+            back: VecDeque::new(),
+            save_start: 0,
+            save_end: 0,
+            dir: dir,
+            capacity,
+        }
+    }
+
+    fn pop(&mut self) -> Option<T> {
+        if let Some(x) = self.front.pop_front() {
+            return Some(x);
+        }
+        if self.save_start < self.save_end {
+            self.front = self.load_swap(self.save_start);
+            self.save_start += 1;
+            return self.front.pop_front();
+        }
+        self.back.pop_front()
+    }
+
+    fn push(&mut self, x: T) {
+        self.back.push_back(x);
+        if self.back.len() >= self.capacity {
+            self.dump_swap(self.save_end);
+            self.back.clear();
+            self.save_end += 1;
+        }
+    }
+
+    fn swap_path(&self, idx: usize) -> PathBuf {
+        self.dir.join(format!("swap{}", idx))
+    }
+
+    fn load_swap(&self, idx: usize) -> VecDeque<T> {
+        let bytes = fs::read(self.swap_path(idx)).unwrap();
+        deserialize(&bytes).unwrap()
+    }
+
+    fn dump_swap(&self, idx: usize) {
+        fs::write(self.swap_path(idx), serialize(&self.back).unwrap()).unwrap()
+    }
+}
+
 struct TaskPool<T> {
-    pool: Arc<Vec<Mutex<VecDeque<T>>>>,
+    pool: Arc<Vec<Mutex<DiskDeque<T>>>>,
 }
 
 struct TaskHandler<T> {
-    pool: Arc<Vec<Mutex<VecDeque<T>>>>,
+    pool: Arc<Vec<Mutex<DiskDeque<T>>>>,
     i: usize,
 }
 
-impl<T> TaskPool<T> {
-    fn new(n: usize) -> TaskPool<T> {
+impl<T: Serialize + DeserializeOwned> TaskPool<T> {
+    fn new<P: AsRef<Path>>(dir: P, capacity: usize, n: usize) -> TaskPool<T> {
         let mut pool = Vec::new();
-        for _ in 0..n {
-            pool.push(Mutex::new(VecDeque::new()));
+        let dir = dir.as_ref();
+        for i in 0..n {
+            pool.push(Mutex::new(
+                DiskDeque::new(dir.join(format!("thread{}", i)), capacity)
+            ));
         }
         TaskPool { pool: Arc::new(pool) }
     }
@@ -75,14 +141,14 @@ impl<T> TaskPool<T> {
 
     fn push(&self, task: T) {
         let i = rand::thread_rng().gen::<usize>() % self.pool.len();
-        self.pool[i].lock().unwrap().push_back(task);
+        self.pool[i].lock().unwrap().push(task);
     }
 }
 
-impl<T> TaskHandler<T> {
+impl<T: Serialize + DeserializeOwned> TaskHandler<T> {
     fn pop(&self) -> Option<T> {
         let own_task = {
-            self.pool[self.i].try_lock().ok()?.pop_front()
+            self.pool[self.i].try_lock().ok()?.pop()
         };
         match own_task {
             Some(task) => Some(task),
@@ -96,12 +162,12 @@ impl<T> TaskHandler<T> {
     }
 
     fn try_steal(&self, j: usize) -> Option<T> {
-        self.pool[j % self.pool.len()].try_lock().ok()?.pop_front()
+        self.pool[j % self.pool.len()].try_lock().ok()?.pop()
     }
 
     fn push(&self, task: T, d: usize) {
         // let j = rand::thread_rng().gen::<usize>() % self.pool.len();
-        self.pool[d % self.pool.len()].lock().unwrap().push_back(task);
+        self.pool[d % self.pool.len()].lock().unwrap().push(task);
     }
 }
 
@@ -469,8 +535,9 @@ fn main() {
     let robots_hit_counter = Arc::new(AtomicUsize::new(0));
     let args = env::args().collect::<Vec<_>>();
     let max_conns: usize = args[1].parse().unwrap();
+    let swap_dir = env::var("SWAP_DIR").unwrap();
     let core_ids = core_affinity::get_core_ids().unwrap();
-    let pool = TaskPool::new(core_ids.len() * max_conns);
+    let pool = TaskPool::new(swap_dir, SWAP_CAP, core_ids.len() * max_conns);
     let seen = Arc::new(cbloom::Filter::new(BLOOM_BYTES, EST_URLS));
     for url in &ROOT_SET {
         pool.push(String::from(*url));
