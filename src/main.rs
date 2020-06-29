@@ -30,8 +30,10 @@ use rand::Rng;
 use futures_util::StreamExt;
 use bincode::{serialize, deserialize};
 use std::fs;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
+use sled;
+use std::marker::PhantomData;
 
 // variables to set:
 // META_DIR - directory of metadata databases
@@ -49,11 +51,16 @@ const ROOT_SET: [&str; 4] = [
 const BLOOM_BYTES: usize = 10_000_000_000;
 const EST_URLS: usize = 1_000_000_000;
 const SWAP_CAP: usize = 1_000;
+const INDEX_CAP: usize = 10_000;
 
 lazy_static! {
     static ref ACADEMIC_RE: Regex = Regex::new(r"^.+\.(edu|ac\.??)$").unwrap();
     static ref LINK_RE: Regex = Regex::new("href=['\"][^'\"]+['\"]").unwrap();
     static ref DISALLOW_RE: Regex = Regex::new(r"^Disallow: ([^\s]+)").unwrap();
+
+    static ref BODY_RE: Regex = Regex::new(r"<body>.*(</body>)?").unwrap();
+    static ref TAG_TEXT_RE: Regex = Regex::new(r"<[^<>]>([^<>]+)").unwrap();
+    static ref TERM_RE: Regex = Regex::new(r"[a-zA-Z]+").unwrap();
 }
 
 struct DiskDeque<T> {
@@ -111,6 +118,73 @@ impl<T: Serialize + DeserializeOwned> DiskDeque<T> {
 
     fn dump_swap(&self, idx: usize) {
         fs::write(self.swap_path(idx), serialize(&self.back).unwrap()).unwrap()
+    }
+}
+
+struct DiskMultiMap<K, V> {
+    cache: BTreeMap<K, Vec<V>>,
+    capacity: usize,
+    dir: PathBuf,
+    db_count: usize,
+}
+
+impl<K: Serialize + DeserializeOwned + Ord, V: Serialize + DeserializeOwned> DiskMultiMap<K, V> {
+    fn new<P: Into<PathBuf>>(dir: P, capacity: usize) -> Self {
+        let dir = dir.into();
+        fs::create_dir_all(&dir).unwrap();
+        DiskMultiMap {
+            cache: BTreeMap::new(),
+            capacity: capacity,
+            dir: dir,
+            db_count: 0,
+        }
+    }
+
+    fn add(&mut self, key: K, value: V) {
+        match self.cache.get_mut(&key) {
+            Some(vec) => vec.push(value),
+            None => { self.cache.insert(key, vec![value]); () },
+        }
+        if self.cache.len() > self.capacity {
+            self.dump_cache(self.db_count);
+            self.cache.clear();
+            self.db_count += 1;
+        }
+    }
+
+    fn db_path(&self, idx: usize) -> PathBuf {
+        self.dir.join(format!("db{}", idx))
+    }
+
+    fn dump_cache(&self, idx: usize) {
+        let db = sled::open(self.db_path(idx)).unwrap();
+        let mut batch = sled::Batch::default();
+        for (key, vec) in &self.cache {
+            batch.insert(serialize(key).unwrap(), serialize(vec).unwrap());
+        }
+        db.apply_batch(batch).unwrap();
+    }
+}
+
+struct DiskMap<K, V> {
+    db: sled::Db,
+    _phantom_key: PhantomData<K>,
+    _phantom_value: PhantomData<V>,
+}
+
+impl<K: Serialize + DeserializeOwned, V: Serialize + DeserializeOwned> DiskMap<K, V> {
+    fn new<P: Into<PathBuf>>(dir: P) -> Self {
+        let dir = dir.into();
+        fs::create_dir_all(&dir).unwrap();
+        DiskMap {
+            db: sled::open(dir).unwrap(),
+            _phantom_key: PhantomData,
+            _phantom_value: PhantomData,
+        }
+    }
+
+    fn insert(&mut self, key: K, value: V) {
+        self.db.insert(serialize(&key).unwrap(), serialize(&value).unwrap()).unwrap();
     }
 }
 
@@ -176,39 +250,6 @@ fn is_academic(url: &Url, academic_re: &Regex) -> bool {
         .map(|domain| academic_re.is_match(domain))
         .unwrap_or(false)
 }
-
-// fn tokenize(document: &Document) -> Vec<String> {
-//     let text = match document.find(Name("body")).next() {
-//         Some(body) => body.text(),
-//         None => String::from(""),
-//     };
-//     let mut tokens: Vec<String> = text.split_whitespace()
-//         .map(String::from)
-//         .collect();
-
-//     for token in &mut tokens {
-//         token.retain(|c| c.is_ascii_alphabetic());
-//         token.make_ascii_lowercase();
-//     }
-
-//     tokens
-//         .into_iter()
-//         .filter(|t| t.len() > 0)
-//         .collect()
-// }
-
-// fn count_terms(
-//     document: &Document,
-//     terms: &mut BTreeMap<String, u32>
-// ) {
-//     for token in tokenize(document) {
-//         let count = match terms.get(&token) {
-//             Some(count) => count.clone(),
-//             None => 0,
-//         };
-//         terms.insert(token, count + 1);
-//     }
-// }
 
 async fn fetch_robots(url: &Url, client: &Client, state: &CrawlerState) -> Option<Vec<String>> {
     let res = client.get(url.join("/robots.txt").ok()?).send().await.ok()?;
@@ -331,12 +372,60 @@ fn add_links(source: &Url, document: &str, state: &CrawlerState, handler: &TaskH
     }
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+struct Posting {
+    url_id: u32,
+    count: u32,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct UrlMeta {
+    url: String,
+    n_terms: u32,
+}
+
+// fn tokenize<'a>(document: &'a str, state: &'a CrawlerState) -> Option<impl Iterator<Item=String> + 'a> {
+//     let body = state.body_re.find(document)?.as_str();
+//     let tokens = state.tag_text_re.captures_iter(body)
+//         .map(|tag_text| state.term_re.find_iter(&tag_text[1]))
+//         .flatten()
+//         .map(|term| term.as_str().to_lowercase());
+//     Some(tokens)
+// }
+
+fn index_document(url: &str, id: usize, document: &str, state: &CrawlerState, index: &mut DiskMultiMap<String, Posting>, meta: &mut DiskMap<u32, UrlMeta>) -> Option<()> {
+    let mut terms = BTreeMap::<String, u32>::new();
+    let body = state.body_re.find(document)?.as_str();
+    for tag_text in state.tag_text_re.captures_iter(body) {
+        for term in state.term_re.find_iter(&tag_text[1]) {
+            let term = term.as_str().to_lowercase();
+            let count = match terms.get(&term) {
+                Some(count) => count.clone(),
+                None => 0,
+            };
+            terms.insert(term, count + 1);
+        }
+    }
+
+    let n_terms = terms.iter().map(|(_, n)| n).sum();
+
+    for (term, count) in terms {
+        index.add(term, Posting { url_id: id as u32, count });
+    }
+    meta.insert(id as u32, UrlMeta { url: String::from(url), n_terms });
+
+    Some(())
+}
+
 async fn crawl_url(
     url: &str,
+    id: usize,
     client: &Client,
     robots: &mut BTreeMap<String, Option<Vec<String>>>,
     state: &CrawlerState,
     handler: &TaskHandler<String>,
+    index: &mut DiskMultiMap<String, Posting>,
+    meta: &mut DiskMap<u32, UrlMeta>,
 ) -> Result<(), Box<dyn Error>> {
     url.parse::<Uri>()?;
     let source = Url::parse(url)?;
@@ -364,19 +453,24 @@ async fn crawl_url(
         }
     }
 
-    let should_add_links = is_academic(&source, &state.academic_re);
-
     let mut stream = res.bytes_stream();
     let mut total_len: usize = 0;
+    let mut data = Vec::new();
     while let Some(Ok(chunk)) = stream.next().await {
         total_len += chunk.len();
         if total_len > 256_000 {
             break;
         }
-        if should_add_links {
-            add_links(&source, std::str::from_utf8(&chunk)?, state, handler);
-        }
+        data.extend_from_slice(&chunk);
     }
+
+    let document = std::str::from_utf8(&data)?;
+
+    if is_academic(&source, &state.academic_re) {
+        add_links(&source, document, state, handler);
+    }
+
+    index_document(url, id, document, state, index, meta);
 
     state.time_counter.fetch_add(start.elapsed().as_millis() as usize, Ordering::Relaxed);
 
@@ -394,12 +488,16 @@ fn build_client() -> Client {
         .build().unwrap()
 }
 
-async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, _id: usize) {
+async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, id: usize) {
     // delay_for(Duration::from_millis(100 * id as u64)).await;
-    let mut n_urls = 0;
+    let mut url_id = 0;
     let mut client = build_client();
     let mut robots = BTreeMap::new();
     let mut was_active = false;
+    let index_dir = state.index_dir.join(format!("thread{}", id));
+    let meta_dir = state.meta_dir.join(format!("thread{}", id));
+    let mut index = DiskMultiMap::new(index_dir, INDEX_CAP);
+    let mut meta = DiskMap::new(meta_dir);
     loop {
         let url = match handler.pop() {
             Some(url) => {
@@ -417,15 +515,15 @@ async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, _id: us
                 delay_for(Duration::from_millis(100)).await; continue;
             },
         };
-        if let Err(err) = crawl_url(&url, &client, &mut robots, &state, &handler).await {
+        if let Err(err) = crawl_url(&url, id, &client, &mut robots, &state, &handler, &mut index, &mut meta).await {
             state.err_counter.fetch_add(1, Ordering::Relaxed);
             if state.tid < 1 {
                 println!("error crawling {}: {:?}", url, err);
             }
         }
         state.url_counter.fetch_add(1, Ordering::Relaxed);
-        n_urls += 1;
-        if n_urls % 100 == 0 {
+        url_id += 1;
+        if url_id % 100 == 0 {
             drop(client);
             client = build_client();
         }
@@ -435,6 +533,8 @@ async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, _id: us
 struct CrawlerState {
     tid: usize,
     seen: Arc<cbloom::Filter>,
+    index_dir: PathBuf,
+    meta_dir: PathBuf,
     time_counter: Arc<AtomicUsize>,
     total_counter: Arc<AtomicUsize>,
     url_counter: Arc<AtomicUsize>,
@@ -444,6 +544,9 @@ struct CrawlerState {
     academic_re: Regex,
     link_re: Regex,
     disallow_re: Regex,
+    body_re: Regex,
+    tag_text_re: Regex,
+    term_re: Regex,
 }
 
 fn crawler_core(
@@ -451,6 +554,8 @@ fn crawler_core(
     max_conns: usize,
     handlers: Vec<TaskHandler<String>>,
     seen: Arc<cbloom::Filter>,
+    index_dir: PathBuf,
+    meta_dir: PathBuf,
     time_counter: Arc<AtomicUsize>,
     total_counter: Arc<AtomicUsize>,
     url_counter: Arc<AtomicUsize>,
@@ -462,6 +567,9 @@ fn crawler_core(
     let academic_re = ACADEMIC_RE.clone();
     let link_re = LINK_RE.clone();
     let disallow_re = DISALLOW_RE.clone();
+    let body_re = BODY_RE.clone();
+    let tag_text_re = TAG_TEXT_RE.clone();
+    let term_re = TERM_RE.clone();
 
     let mut rt = runtime::Builder::new()
         .basic_scheduler()
@@ -473,6 +581,8 @@ fn crawler_core(
     let state = Arc::new(CrawlerState {
         tid: coreid.id,
         seen,
+        index_dir,
+        meta_dir,
         time_counter,
         total_counter,
         url_counter,
@@ -482,6 +592,9 @@ fn crawler_core(
         academic_re,
         link_re,
         disallow_re,
+        body_re,
+        tag_text_re,
+        term_re,
     });
 
     for (id, handler) in handlers.into_iter().enumerate() {
@@ -535,7 +648,9 @@ fn main() {
     let robots_hit_counter = Arc::new(AtomicUsize::new(0));
     let args = env::args().collect::<Vec<_>>();
     let max_conns: usize = args[1].parse().unwrap();
-    let swap_dir = env::var("SWAP_DIR").unwrap();
+    let swap_dir: PathBuf = env::var("SWAP_DIR").unwrap().into();
+    let index_dir: PathBuf = env::var("INDEX_DIR").unwrap().into();
+    let meta_dir: PathBuf = env::var("META_DIR").unwrap().into();
     let core_ids = core_affinity::get_core_ids().unwrap();
     let pool = TaskPool::new(swap_dir, SWAP_CAP, core_ids.len() * max_conns);
     let seen = Arc::new(cbloom::Filter::new(BLOOM_BYTES, EST_URLS));
@@ -558,6 +673,8 @@ fn main() {
         for i in 0..max_conns {
             handlers.push(pool.handler(coreid.id * max_conns + i));
         }
+        let index_dir = index_dir.clone();
+        let meta_dir = meta_dir.clone();
         let time_counter = time_counter.clone();
         let total_counter = total_counter.clone();
         let url_counter = url_counter.clone();
@@ -565,7 +682,7 @@ fn main() {
         let active_counter = active_counter.clone();
         let robots_hit_counter = robots_hit_counter.clone();
         let seen = seen.clone();
-        thread::spawn(move || crawler_core(coreid, max_conns, handlers, seen, time_counter, total_counter, url_counter, err_counter, active_counter, robots_hit_counter))
+        thread::spawn(move || crawler_core(coreid, max_conns, handlers, seen, index_dir, meta_dir, time_counter, total_counter, url_counter, err_counter, active_counter, robots_hit_counter))
     }).collect::<Vec<_>>();
 
     let _res = monitor_handle.join();
