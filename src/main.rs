@@ -123,6 +123,7 @@ impl<T: Serialize + DeserializeOwned> DiskDeque<T> {
 
 struct DiskMultiMap<K, V> {
     cache: BTreeMap<K, Vec<V>>,
+    cache_len: usize,
     capacity: usize,
     dir: PathBuf,
     db_count: usize,
@@ -134,6 +135,7 @@ impl<K: Serialize + DeserializeOwned + Ord, V: Serialize + DeserializeOwned> Dis
         fs::create_dir_all(&dir).unwrap();
         DiskMultiMap {
             cache: BTreeMap::new(),
+            cache_len: 0,
             capacity: capacity,
             dir: dir,
             db_count: 0,
@@ -145,10 +147,12 @@ impl<K: Serialize + DeserializeOwned + Ord, V: Serialize + DeserializeOwned> Dis
             Some(vec) => vec.push(value),
             None => { self.cache.insert(key, vec![value]); () },
         }
-        if self.cache.len() > self.capacity {
+        self.cache_len += 1;
+        if self.cache_len > self.capacity {
             self.dump_cache(self.db_count);
             self.cache.clear();
             self.db_count += 1;
+            self.cache_len = 0;
         }
     }
 
@@ -384,16 +388,7 @@ struct UrlMeta {
     n_terms: u32,
 }
 
-// fn tokenize<'a>(document: &'a str, state: &'a CrawlerState) -> Option<impl Iterator<Item=String> + 'a> {
-//     let body = state.body_re.find(document)?.as_str();
-//     let tokens = state.tag_text_re.captures_iter(body)
-//         .map(|tag_text| state.term_re.find_iter(&tag_text[1]))
-//         .flatten()
-//         .map(|term| term.as_str().to_lowercase());
-//     Some(tokens)
-// }
-
-fn index_document(url: &str, id: usize, document: &str, state: &CrawlerState, index: &mut DiskMultiMap<String, Posting>, meta: &mut DiskMap<u32, UrlMeta>) -> Option<()> {
+fn index_document(url: &str, id: usize, document: &str, state: &CrawlerState) -> Option<()> {
     let mut terms = BTreeMap::<String, u32>::new();
     let body = state.body_re.find(document)?.as_str();
     for tag_text in state.tag_text_re.captures_iter(body) {
@@ -409,6 +404,8 @@ fn index_document(url: &str, id: usize, document: &str, state: &CrawlerState, in
 
     let n_terms = terms.iter().map(|(_, n)| n).sum();
 
+    let mut index = state.index.lock().unwrap();
+    let mut meta = state.meta.lock().unwrap();
     for (term, count) in terms {
         index.add(term, Posting { url_id: id as u32, count });
     }
@@ -424,8 +421,6 @@ async fn crawl_url(
     robots: &mut BTreeMap<String, Option<Vec<String>>>,
     state: &CrawlerState,
     handler: &TaskHandler<String>,
-    index: &mut DiskMultiMap<String, Posting>,
-    meta: &mut DiskMap<u32, UrlMeta>,
 ) -> Result<(), Box<dyn Error>> {
     url.parse::<Uri>()?;
     let source = Url::parse(url)?;
@@ -470,7 +465,7 @@ async fn crawl_url(
         add_links(&source, document, state, handler);
     }
 
-    index_document(url, id, document, state, index, meta);
+    index_document(url, id, document, state);
 
     state.time_counter.fetch_add(start.elapsed().as_millis() as usize, Ordering::Relaxed);
 
@@ -494,10 +489,6 @@ async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, id: usi
     let mut client = build_client();
     let mut robots = BTreeMap::new();
     let mut was_active = false;
-    let index_dir = state.index_dir.join(format!("thread{}", id));
-    let meta_dir = state.meta_dir.join(format!("thread{}", id));
-    let mut index = DiskMultiMap::new(index_dir, INDEX_CAP);
-    let mut meta = DiskMap::new(meta_dir);
     loop {
         let url = match handler.pop() {
             Some(url) => {
@@ -515,7 +506,7 @@ async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, id: usi
                 delay_for(Duration::from_millis(100)).await; continue;
             },
         };
-        if let Err(err) = crawl_url(&url, id, &client, &mut robots, &state, &handler, &mut index, &mut meta).await {
+        if let Err(err) = crawl_url(&url, id, &client, &mut robots, &state, &handler).await {
             state.err_counter.fetch_add(1, Ordering::Relaxed);
             if state.tid < 1 {
                 println!("error crawling {}: {:?}", url, err);
@@ -533,8 +524,6 @@ async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, id: usi
 struct CrawlerState {
     tid: usize,
     seen: Arc<cbloom::Filter>,
-    index_dir: PathBuf,
-    meta_dir: PathBuf,
     time_counter: Arc<AtomicUsize>,
     total_counter: Arc<AtomicUsize>,
     url_counter: Arc<AtomicUsize>,
@@ -547,6 +536,8 @@ struct CrawlerState {
     body_re: Regex,
     tag_text_re: Regex,
     term_re: Regex,
+    index: Mutex<DiskMultiMap<String, Posting>>,
+    meta: Mutex<DiskMap<u32, UrlMeta>>,
 }
 
 fn crawler_core(
@@ -571,6 +562,11 @@ fn crawler_core(
     let tag_text_re = TAG_TEXT_RE.clone();
     let term_re = TERM_RE.clone();
 
+    let index_dir = index_dir.join(format!("core{}", coreid.id));
+    let meta_dir = meta_dir.join(format!("core{}", coreid.id));
+    let index = Mutex::new(DiskMultiMap::new(index_dir, INDEX_CAP));
+    let meta = Mutex::new(DiskMap::new(meta_dir));
+
     let mut rt = runtime::Builder::new()
         .basic_scheduler()
         .enable_time()
@@ -581,8 +577,6 @@ fn crawler_core(
     let state = Arc::new(CrawlerState {
         tid: coreid.id,
         seen,
-        index_dir,
-        meta_dir,
         time_counter,
         total_counter,
         url_counter,
@@ -595,6 +589,8 @@ fn crawler_core(
         body_re,
         tag_text_re,
         term_re,
+        index,
+        meta,
     });
 
     for (id, handler) in handlers.into_iter().enumerate() {
