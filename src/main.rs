@@ -472,6 +472,8 @@ async fn crawl_url(
         data.extend_from_slice(&chunk);
     }
 
+    state.time_counter.fetch_add(start.elapsed().as_millis() as usize, Ordering::Relaxed);
+
     let document = std::str::from_utf8(&data)?;
 
     if is_academic(&source, &state.academic_re) {
@@ -479,8 +481,6 @@ async fn crawl_url(
     }
 
     index_document(url, id, document, state);
-
-    state.time_counter.fetch_add(start.elapsed().as_millis() as usize, Ordering::Relaxed);
 
     Ok(())
 }
