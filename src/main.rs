@@ -419,9 +419,9 @@ fn index_document(url: &str, id: usize, document: &str, state: &CrawlerState) ->
 
     let mut index = state.index.lock().unwrap();
     let mut meta = state.meta.lock().unwrap();
-    // for (term, count) in terms {
-    //     index.add(term, Posting { url_id: id as u32, count });
-    // }
+    for (term, count) in terms {
+        index.add(term, Posting { url_id: id as u32, count });
+    }
     // meta.insert(id as u32, UrlMeta { url: String::from(url), n_terms });
 
     Some(())
