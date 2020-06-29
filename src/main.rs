@@ -415,7 +415,7 @@ fn index_document(url: &str, id: usize, document: &str, state: &CrawlerState) ->
         }
     }
 
-    let n_terms = terms.iter().map(|(_, n)| n).sum();
+    let n_terms: u32 = terms.iter().map(|(_, n)| n).sum();
 
     let mut index = state.index.lock().unwrap();
     let mut meta = state.meta.lock().unwrap();
