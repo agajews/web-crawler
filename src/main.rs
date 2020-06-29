@@ -48,6 +48,15 @@ const ROOT_SET: [&str; 4] = [
     "https://cam.ac.uk",
 ];
 
+// DEBUG
+
+// const BLOOM_BYTES: usize = 10_000_000_0;
+// const EST_URLS: usize = 1_000_000_000;
+// const SWAP_CAP: usize = 1_0;
+// const INDEX_CAP: usize = 10_;
+
+// PROD
+
 const BLOOM_BYTES: usize = 10_000_000_000;
 const EST_URLS: usize = 1_000_000_000;
 const SWAP_CAP: usize = 1_000;
@@ -58,7 +67,7 @@ lazy_static! {
     static ref LINK_RE: Regex = Regex::new("href=['\"][^'\"]+['\"]").unwrap();
     static ref DISALLOW_RE: Regex = Regex::new(r"^Disallow: ([^\s]+)").unwrap();
 
-    static ref BODY_RE: Regex = Regex::new(r"<body>.*(</body>)?").unwrap();
+    static ref BODY_RE: Regex = Regex::new(r"(?s)<body[^<>]*>.*(</body>)?").unwrap();
     static ref TAG_TEXT_RE: Regex = Regex::new(r"<[^<>]>([^<>]+)").unwrap();
     static ref TERM_RE: Regex = Regex::new(r"[a-zA-Z]+").unwrap();
 }
@@ -389,11 +398,15 @@ struct UrlMeta {
 }
 
 fn index_document(url: &str, id: usize, document: &str, state: &CrawlerState) -> Option<()> {
+    // println!("indexing {}", url);
+    // println!("doc: {}", document);
     let mut terms = BTreeMap::<String, u32>::new();
     let body = state.body_re.find(document)?.as_str();
+    // println!("body: {}", body);
     for tag_text in state.tag_text_re.captures_iter(body) {
         for term in state.term_re.find_iter(&tag_text[1]) {
             let term = term.as_str().to_lowercase();
+            println!("{}", term);
             let count = match terms.get(&term) {
                 Some(count) => count.clone(),
                 None => 0,
