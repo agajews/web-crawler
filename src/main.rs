@@ -170,7 +170,12 @@ impl<K: Serialize + DeserializeOwned + Ord, V: Serialize + DeserializeOwned> Dis
     }
 
     fn dump_cache(&self, idx: usize) {
-        let db = sled::open(self.db_path(idx)).unwrap();
+        let db = sled::Config::default()
+            .cache_capacity(200_000_000)
+            .path(self.db_path(idx))
+            .open()
+            .unwrap();
+        // let db = sled::open(self.db_path(idx)).unwrap();
         let mut batch = sled::Batch::default();
         for (key, vec) in &self.cache {
             batch.insert(serialize(key).unwrap(), serialize(vec).unwrap());
