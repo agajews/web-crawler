@@ -406,7 +406,7 @@ fn index_document(url: &str, id: usize, document: &str, state: &CrawlerState) ->
     for tag_text in state.tag_text_re.captures_iter(body) {
         for term in state.term_re.find_iter(&tag_text[1]) {
             let term = term.as_str().to_lowercase();
-            println!("{}", term);
+            // println!("{}", term);
             let count = match terms.get(&term) {
                 Some(count) => count.clone(),
                 None => 0,
