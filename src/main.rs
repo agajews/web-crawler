@@ -138,7 +138,7 @@ struct DiskMultiMap<K, V> {
     db_count: usize,
 }
 
-impl<K: Serialize + DeserializeOwned + Ord, V: Serialize + DeserializeOwned> DiskMultiMap<K, V> {
+impl<K: Serialize + DeserializeOwned + Ord + Send + 'static, V: Serialize + DeserializeOwned + Send + 'static> DiskMultiMap<K, V> {
     fn new<P: Into<PathBuf>>(dir: P, capacity: usize) -> Self {
         let dir = dir.into();
         fs::create_dir_all(&dir).unwrap();
@@ -158,10 +158,12 @@ impl<K: Serialize + DeserializeOwned + Ord, V: Serialize + DeserializeOwned> Dis
         }
         self.cache_len += 1;
         if self.cache_len > self.capacity {
-            self.dump_cache(self.db_count);
-            self.cache.clear();
-            self.db_count += 1;
+            let mut cache = BTreeMap::new();
+            std::mem::swap(&mut self.cache, &mut cache);
             self.cache_len = 0;
+            let path = self.db_path(self.db_count);
+            self.db_count += 1;
+            thread::spawn(move || Self::dump_cache(cache, path));
         }
     }
 
@@ -169,16 +171,11 @@ impl<K: Serialize + DeserializeOwned + Ord, V: Serialize + DeserializeOwned> Dis
         self.dir.join(format!("db{}", idx))
     }
 
-    fn dump_cache(&self, idx: usize) {
-        let db = sled::Config::default()
-            .cache_capacity(200_000_000)
-            .path(self.db_path(idx))
-            .open()
-            .unwrap();
-        // let db = sled::open(self.db_path(idx)).unwrap();
+    fn dump_cache(cache: BTreeMap<K, Vec<V>>, path: PathBuf) {
+        let db = sled::open(path).unwrap();
         let mut batch = sled::Batch::default();
-        for (key, vec) in &self.cache {
-            batch.insert(serialize(key).unwrap(), serialize(vec).unwrap());
+        for (key, vec) in cache {
+            batch.insert(serialize(&key).unwrap(), serialize(&vec).unwrap());
         }
         db.apply_batch(batch).unwrap();
     }
