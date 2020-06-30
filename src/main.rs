@@ -542,7 +542,7 @@ async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, id: usi
                     state.active_counter.fetch_sub(1, Ordering::Relaxed);
                     was_active = false;
                 }
-                delay_for(Duration::from_secs(10)).await; continue;
+                delay_for(Duration::from_secs(1)).await; continue;
             },
         };
         if let Err(err) = crawl_url(&url, id, &client, &mut robots, &state, &handler).await {
