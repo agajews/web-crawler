@@ -533,6 +533,7 @@ fn build_client(state: &CrawlerState) -> Client {
         .flatten()
         .collect::<Vec<_>>();
     let ip = ips[state.coreid % ips.len()].ip();
+    println!("building client for local ip {:?}", ip);
     Client::builder()
         .user_agent(USER_AGENT)
         .danger_accept_invalid_certs(true)
