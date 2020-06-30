@@ -33,7 +33,6 @@ use std::fs;
 use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
 use sled;
-use std::marker::PhantomData;
 
 // variables to set:
 // META_DIR - directory of metadata databases
@@ -61,6 +60,7 @@ const BLOOM_BYTES: usize = 10_000_000_000;
 const EST_URLS: usize = 1_000_000_000;
 const SWAP_CAP: usize = 1_000;
 const INDEX_CAP: usize = 1_000_000;
+const META_CAP: usize = 10_000;
 
 lazy_static! {
     static ref ACADEMIC_RE: Regex = Regex::new(r"^.+\.(edu|ac\.??)$").unwrap();
@@ -188,24 +188,39 @@ impl<K: Serialize + DeserializeOwned + Ord + Send + 'static, V: Serialize + Dese
 }
 
 struct DiskMap<K, V> {
-    db: sled::Db,
-    _phantom_key: PhantomData<K>,
-    _phantom_value: PhantomData<V>,
+    dir: PathBuf,
+    cache: BTreeMap<K, V>,
+    capacity: usize,
 }
 
-impl<K: Serialize + DeserializeOwned, V: Serialize + DeserializeOwned> DiskMap<K, V> {
-    fn new<P: Into<PathBuf>>(dir: P) -> Self {
+impl<K: Serialize + DeserializeOwned + Ord + Send + 'static, V: Serialize + DeserializeOwned + Send + 'static> DiskMap<K, V> {
+    fn new<P: Into<PathBuf>>(dir: P, capacity: usize) -> Self {
         let dir = dir.into();
         fs::create_dir_all(&dir).unwrap();
         DiskMap {
-            db: sled::open(dir).unwrap(),
-            _phantom_key: PhantomData,
-            _phantom_value: PhantomData,
+            dir,
+            cache: BTreeMap::new(),
+            capacity,
         }
     }
 
     fn insert(&mut self, key: K, value: V) {
-        self.db.insert(serialize(&key).unwrap(), serialize(&value).unwrap()).unwrap();
+        self.cache.insert(key, value);
+        if self.cache.len() > self.capacity {
+            let mut cache = BTreeMap::new();
+            std::mem::swap(&mut self.cache, &mut cache);
+            let dir = self.dir.clone();
+            thread::spawn(move || Self::dump_cache(cache, dir));
+        }
+    }
+
+    fn dump_cache(cache: BTreeMap<K, V>, path: PathBuf) {
+        let db = sled::open(path).unwrap();
+        let mut batch = sled::Batch::default();
+        for (key, val) in cache {
+            batch.insert(serialize(&key).unwrap(), serialize(&val).unwrap());
+        }
+        db.apply_batch(batch).unwrap();
     }
 }
 
@@ -431,7 +446,7 @@ fn index_document(url: &str, id: usize, document: &str, state: &CrawlerState) ->
         index.add(term, Posting { url_id: id as u32, count });
     }
     index.maybe_dump();
-    // meta.insert(id as u32, UrlMeta { url: String::from(url), n_terms });
+    meta.insert(id as u32, UrlMeta { url: String::from(url), n_terms });
 
     Some(())
 }
@@ -587,7 +602,7 @@ fn crawler_core(
     let index_dir = index_dir.join(format!("core{}", coreid.id));
     let meta_dir = meta_dir.join(format!("core{}", coreid.id));
     let index = Mutex::new(DiskMultiMap::new(index_dir, INDEX_CAP));
-    let meta = Mutex::new(DiskMap::new(meta_dir));
+    let meta = Mutex::new(DiskMap::new(meta_dir, META_CAP));
 
     let mut rt = runtime::Builder::new()
         .basic_scheduler()
