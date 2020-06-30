@@ -85,9 +85,9 @@ struct DiskDeque<T> {
 }
 
 impl<T: Serialize + DeserializeOwned> DiskDeque<T> {
-    fn new<P: Into<PathBuf>>(dir: P, capacity: usize) -> Self {
+    async fn new<P: Into<PathBuf>>(dir: P, capacity: usize) -> Self {
         let dir = dir.into();
-        fs::create_dir_all(&dir).unwrap();
+        tokio::fs::create_dir_all(&dir).await.unwrap();
         DiskDeque {
             front: VecDeque::new(),
             back: VecDeque::new(),
@@ -242,12 +242,12 @@ struct TaskHandler<T> {
 }
 
 impl<T: Serialize + DeserializeOwned> TaskPool<T> {
-    fn new<P: AsRef<Path>>(dir: P, capacity: usize, n: usize) -> TaskPool<T> {
+    async fn new<P: AsRef<Path>>(dir: P, capacity: usize, n: usize) -> TaskPool<T> {
         let mut pool = Vec::new();
         let dir = dir.as_ref();
         for i in 0..n {
             pool.push(Mutex::new(
-                DiskDeque::new(dir.join(format!("thread{}", i)), capacity)
+                DiskDeque::new(dir.join(format!("thread{}", i)), capacity).await
             ));
         }
         TaskPool { pool: Arc::new(pool) }
@@ -698,7 +698,7 @@ async fn main() {
     let index_dir: PathBuf = env::var("INDEX_DIR").unwrap().into();
     let meta_dir: PathBuf = env::var("META_DIR").unwrap().into();
     let core_ids = core_affinity::get_core_ids().unwrap();
-    let pool = TaskPool::new(swap_dir, SWAP_CAP, core_ids.len() * max_conns);
+    let pool = TaskPool::new(swap_dir, SWAP_CAP, core_ids.len() * max_conns).await;
     let seen = Arc::new(cbloom::Filter::new(BLOOM_BYTES, EST_URLS));
     for url in &ROOT_SET {
         pool.push(String::from(*url)).await;
