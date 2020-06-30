@@ -59,7 +59,7 @@ const ROOT_SET: [&str; 4] = [
 const BLOOM_BYTES: usize = 10_000_000_000;
 const EST_URLS: usize = 1_000_000_000;
 const SWAP_CAP: usize = 1_000;
-const INDEX_CAP: usize = 1_000_000;
+const INDEX_CAP: usize = 10_000_000;
 const META_CAP: usize = 10_000;
 
 lazy_static! {
@@ -165,7 +165,6 @@ impl<K: Serialize + DeserializeOwned + Ord + Send + 'static, V: Serialize + Dese
             std::mem::swap(&mut self.cache, &mut cache);
             self.cache_len = 0;
             let path = self.db_path(self.db_count);
-            println!("writing to disk: {:?}", path);
             self.db_count += 1;
             thread::spawn(move || Self::dump_cache(cache, path));
         }
@@ -176,12 +175,14 @@ impl<K: Serialize + DeserializeOwned + Ord + Send + 'static, V: Serialize + Dese
     }
 
     fn dump_cache(cache: BTreeMap<K, Vec<V>>, path: PathBuf) {
-        let db = sled::open(path).unwrap();
+        println!("writing to disk: {:?}", path);
+        let db = sled::open(&path).unwrap();
         let mut batch = sled::Batch::default();
         for (key, vec) in cache {
             batch.insert(serialize(&key).unwrap(), serialize(&vec).unwrap());
         }
         db.apply_batch(batch).unwrap();
+        println!("finished writing to {:?}", path);
     }
 }
 
@@ -214,12 +215,14 @@ impl<K: Serialize + DeserializeOwned + Ord + Send + 'static, V: Serialize + Dese
     }
 
     fn dump_cache(cache: BTreeMap<K, V>, path: PathBuf) {
-        let db = sled::open(path).unwrap();
+        println!("writing to disk: {:?}", path);
+        let db = sled::open(&path).unwrap();
         let mut batch = sled::Batch::default();
         for (key, val) in cache {
             batch.insert(serialize(&key).unwrap(), serialize(&val).unwrap());
         }
         db.apply_batch(batch).unwrap();
+        println!("finished writing to {:?}", path);
     }
 }
 
