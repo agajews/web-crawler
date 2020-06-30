@@ -528,6 +528,7 @@ fn build_client(state: &CrawlerState) -> Client {
     // TODO: optimize request size
     let ips = datalink::interfaces()
         .into_iter()
+        .filter(|interface| !interface.is_loopback())
         .map(|interface| interface.ips)
         .flatten()
         .collect::<Vec<_>>();
