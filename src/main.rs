@@ -85,9 +85,9 @@ struct DiskDeque<T> {
 }
 
 impl<T: Serialize + DeserializeOwned> DiskDeque<T> {
-    async fn new<P: Into<PathBuf>>(dir: P, capacity: usize) -> Self {
+    fn new<P: Into<PathBuf>>(dir: P, capacity: usize) -> Self {
         let dir = dir.into();
-        tokio::fs::create_dir_all(&dir).await.unwrap();
+        fs::create_dir_all(&dir).unwrap();
         DiskDeque {
             front: VecDeque::new(),
             back: VecDeque::new(),
@@ -242,12 +242,12 @@ struct TaskHandler<T> {
 }
 
 impl<T: Serialize + DeserializeOwned> TaskPool<T> {
-    async fn new<P: AsRef<Path>>(dir: P, capacity: usize, n: usize) -> TaskPool<T> {
+    fn new<P: AsRef<Path>>(dir: P, capacity: usize, n: usize) -> TaskPool<T> {
         let mut pool = Vec::new();
         let dir = dir.as_ref();
         for i in 0..n {
             pool.push(Mutex::new(
-                DiskDeque::new(dir.join(format!("thread{}", i)), capacity).await
+                DiskDeque::new(dir.join(format!("thread{}", i)), capacity)
             ));
         }
         TaskPool { pool: Arc::new(pool) }
@@ -275,12 +275,14 @@ impl<T: Serialize + DeserializeOwned> TaskHandler<T> {
     }
 
     async fn steal(&self) -> Option<T> {
-        for j in (self.i + 1)..=(self.i + self.pool.len()) {
-            if let Some(task) = self.try_steal(j).await {
-                return Some(task);
-            }
-        }
-        None
+        let j = rand::thread_rng().gen::<usize>() % self.pool.len();
+        self.try_steal(j).await
+        // for j in (self.i + 1)..=(self.i + self.pool.len()) {
+        //     if let Some(task) = self.try_steal(j).await {
+        //         return Some(task);
+        //     }
+        // }
+        // None
     }
 
     async fn try_steal(&self, j: usize) -> Option<T> {
@@ -698,7 +700,7 @@ async fn main() {
     let index_dir: PathBuf = env::var("INDEX_DIR").unwrap().into();
     let meta_dir: PathBuf = env::var("META_DIR").unwrap().into();
     let core_ids = core_affinity::get_core_ids().unwrap();
-    let pool = TaskPool::new(swap_dir, SWAP_CAP, core_ids.len() * max_conns).await;
+    let pool = TaskPool::new(swap_dir, SWAP_CAP, core_ids.len() * max_conns);
     let seen = Arc::new(cbloom::Filter::new(BLOOM_BYTES, EST_URLS));
     for url in &ROOT_SET {
         pool.push(String::from(*url)).await;
