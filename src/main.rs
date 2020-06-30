@@ -701,7 +701,7 @@ fn main() {
         let robots_hit_counter = robots_hit_counter.clone();
         thread::spawn(move || url_monitor(time_counter, total_counter, url_counter, err_counter, active_counter, robots_hit_counter) )
     };
-    let _threads = core_ids.into_iter().map(|coreid| {
+    let _threads = core_ids.into_iter().take(1).map(|coreid| {
         println!("spawned thread {}", coreid.id + 1);
         // thread::sleep(Duration::from_secs(1));
         let mut handlers = Vec::new();
