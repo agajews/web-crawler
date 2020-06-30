@@ -168,7 +168,7 @@ impl<K: Serialize + DeserializeOwned + Ord + Send + 'static, V: Serialize + Dese
             let done_str = format!("done blocking for {:?}", path);
             println!("writing to disk: {:?}", path);
             self.db_count += 1;
-            // thread::spawn(move || Self::dump_cache(cache, path));
+            thread::spawn(move || Self::dump_cache(cache, path));
             println!("{}", done_str);
         }
     }
