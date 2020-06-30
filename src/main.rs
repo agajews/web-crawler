@@ -157,6 +157,9 @@ impl<K: Serialize + DeserializeOwned + Ord + Send + 'static, V: Serialize + Dese
             None => { self.cache.insert(key, vec![value]); () },
         }
         self.cache_len += 1;
+    }
+
+    fn maybe_dump(&mut self) {
         if self.cache_len > self.capacity {
             let mut cache = BTreeMap::new();
             std::mem::swap(&mut self.cache, &mut cache);
@@ -165,7 +168,7 @@ impl<K: Serialize + DeserializeOwned + Ord + Send + 'static, V: Serialize + Dese
             let done_str = format!("done blocking for {:?}", path);
             println!("writing to disk: {:?}", path);
             self.db_count += 1;
-            thread::spawn(move || Self::dump_cache(cache, path));
+            // thread::spawn(move || Self::dump_cache(cache, path));
             println!("{}", done_str);
         }
     }
@@ -427,6 +430,7 @@ fn index_document(url: &str, id: usize, document: &str, state: &CrawlerState) ->
     for (term, count) in terms {
         index.add(term, Posting { url_id: id as u32, count });
     }
+    index.maybe_dump();
     meta.insert(id as u32, UrlMeta { url: String::from(url), n_terms });
 
     Some(())
