@@ -431,7 +431,7 @@ fn index_document(url: &str, id: usize, document: &str, state: &CrawlerState) ->
         index.add(term, Posting { url_id: id as u32, count });
     }
     index.maybe_dump();
-    meta.insert(id as u32, UrlMeta { url: String::from(url), n_terms });
+    // meta.insert(id as u32, UrlMeta { url: String::from(url), n_terms });
 
     Some(())
 }
