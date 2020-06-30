@@ -26,7 +26,30 @@ sudo su -c "echo 'net.core.netdev_max_backlog = 20000' >> /etc/sysctl.conf"
 sudo sysctl -p
 sudo ifconfig eth0 txqueuelen 10000
 sudo ethtool -G eth0 rx 16384
+
 sudo su -c "curl https://raw.githubusercontent.com/awslabs/aws-support-tools/master/EC2/AutomateDnsmasq/AutomateDnsmasq.sh | sed 's/cache-size=500/cache-size=50000\nmin-cache-ttl=3600/g' | sed 's/127.0.0.1, \${NAMESERVER}/127.0.0.1/g' | sh"
 
-mkdir /tmp/crawler-meta /tmp/crawler-index
-export META_DIR=/tmp/crawler-meta INDEX_DIR=/tmp/crawler-index
+sudo yum install -y dnsmasq bind-utils
+sudo groupadd -r dnsmasq
+sudo useradd -r -g dnsmasq dnsmasq
+sudo cat << EOF > /etc/dnsmasq.conf
+# Server Configuration
+listen-address=127.0.0.1
+port=53
+bind-interfaces
+user=dnsmasq
+group=dnsmasq
+pid-file=/var/run/dnsmasq.pid
+# Name resolution options
+resolv-file=/etc/resolv.dnsmasq
+cache-size=500
+neg-ttl=60
+domain-needed
+bogus-priv
+EOF
+
+echo "nameserver 169.254.169.254" > /etc/resolv.dnsmasq
+sudo systemctl restart dnsmasq.service
+sudo systemctl enable  dnsmasq.service
+
+dig aws.amazon.com @127.0.0.1 && sudo echo "supersede domain-name-servers 127.0.0.1;" >> /etc/dhcp/dhclient.conf && sudo dhclient
