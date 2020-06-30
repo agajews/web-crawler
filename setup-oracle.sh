@@ -3,7 +3,7 @@
 sudo yum install -y gcc gcc-c++ pkg-config openssl-devel git
 sudo yum install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
 sudo yum install -y htop nload perf tmux
-sudo yum install -y nfs-utils
+sudo yum install -y nfs-utils NetworkManager
 sudo mkdir -p /mnt/web-crawler-fs
 sudo mount 10.0.0.5:/web-crawler-fs /mnt/web-crawler-fs
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
@@ -23,6 +23,7 @@ sudo su -c "echo 'net.ipv4.tcp_timestamps = 1' >> /etc/sysctl.conf"
 sudo su -c "echo 'net.ipv4.tcp_sack = 1' >> /etc/sysctl.conf"
 sudo su -c "echo 'net.ipv4.tcp_no_metrics_save = 1' >> /etc/sysctl.conf"
 sudo su -c "echo 'net.core.netdev_max_backlog = 20000' >> /etc/sysctl.conf"
+sudo su -c "echo 'net.ipv4.ip_local_port_range = 1024 65535' >> /etc/sysctl.conf"
 sudo sysctl -p
 # sudo ifconfig eno1 txqueuelen 10000
 # sudo ethtool -G eno1 rx 2047
