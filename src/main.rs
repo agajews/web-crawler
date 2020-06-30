@@ -8,7 +8,7 @@ use reqwest::redirect::Policy;
 // use select::predicate::Name;
 use url::Url;
 use std::thread;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::env;
 use std::collections::{BTreeMap, VecDeque};
 use regex::Regex;
@@ -33,6 +33,9 @@ use std::fs;
 use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
 use sled;
+use tokio::fs::File;
+use tokio::io::{AsyncWriteExt, AsyncReadExt};
+use tokio::sync::Mutex;
 
 // variables to set:
 // META_DIR - directory of metadata databases
@@ -95,22 +98,22 @@ impl<T: Serialize + DeserializeOwned> DiskDeque<T> {
         }
     }
 
-    fn pop(&mut self) -> Option<T> {
+    async fn pop(&mut self) -> Option<T> {
         if let Some(x) = self.front.pop_front() {
             return Some(x);
         }
         if self.save_start < self.save_end {
-            self.front = self.load_swap(self.save_start);
+            self.front = self.load_swap(self.save_start).await;
             self.save_start += 1;
             return self.front.pop_front();
         }
         self.back.pop_front()
     }
 
-    fn push(&mut self, x: T) {
+    async fn push(&mut self, x: T) {
         self.back.push_back(x);
         if self.back.len() >= self.capacity {
-            self.dump_swap(self.save_end);
+            self.dump_swap(self.save_end).await;
             self.back.clear();
             self.save_end += 1;
         }
@@ -120,13 +123,16 @@ impl<T: Serialize + DeserializeOwned> DiskDeque<T> {
         self.dir.join(format!("swap{}", idx))
     }
 
-    fn load_swap(&self, idx: usize) -> VecDeque<T> {
-        let bytes = fs::read(self.swap_path(idx)).unwrap();
-        deserialize(&bytes).unwrap()
+    async fn load_swap(&self, idx: usize) -> VecDeque<T> {
+        let mut file = File::open(self.swap_path(idx)).await.unwrap();
+        let mut contents = vec![];
+        file.read_to_end(&mut contents).await.unwrap();
+        deserialize(&contents).unwrap()
     }
 
-    fn dump_swap(&self, idx: usize) {
-        fs::write(self.swap_path(idx), serialize(&self.back).unwrap()).unwrap()
+    async fn dump_swap(&self, idx: usize) {
+        let mut file = File::create(self.swap_path(idx)).await.unwrap();
+        file.write_all(&serialize(&self.back).unwrap()).await.unwrap()
     }
 }
 
@@ -251,35 +257,39 @@ impl<T: Serialize + DeserializeOwned> TaskPool<T> {
         TaskHandler { pool: self.pool.clone(), i }
     }
 
-    fn push(&self, task: T) {
+    async fn push(&self, task: T) {
         let i = rand::thread_rng().gen::<usize>() % self.pool.len();
-        self.pool[i].lock().unwrap().push(task);
+        self.pool[i].lock().await.push(task).await;
     }
 }
 
 impl<T: Serialize + DeserializeOwned> TaskHandler<T> {
-    fn pop(&self) -> Option<T> {
+    async fn pop(&self) -> Option<T> {
         let own_task = {
-            self.pool[self.i].try_lock().ok()?.pop()
+            self.pool[self.i].try_lock().ok()?.pop().await
         };
         match own_task {
             Some(task) => Some(task),
-            None => self.steal(),
+            None => self.steal().await,
         }
     }
 
-    fn steal(&self) -> Option<T> {
-        ((self.i + 1)..=(self.i + self.pool.len()))
-            .find_map(|j| self.try_steal(j))
+    async fn steal(&self) -> Option<T> {
+        for j in (self.i + 1)..=(self.i + self.pool.len()) {
+            if let Some(task) = self.try_steal(j).await {
+                return Some(task);
+            }
+        }
+        None
     }
 
-    fn try_steal(&self, j: usize) -> Option<T> {
-        self.pool[j % self.pool.len()].try_lock().ok()?.pop()
+    async fn try_steal(&self, j: usize) -> Option<T> {
+        self.pool[j % self.pool.len()].try_lock().ok()?.pop().await
     }
 
-    fn push(&self, task: T, d: usize) {
+    async fn push(&self, task: T, d: usize) {
         // let j = rand::thread_rng().gen::<usize>() % self.pool.len();
-        self.pool[d % self.pool.len()].lock().unwrap().push(task);
+        self.pool[d % self.pool.len()].lock().await.push(task).await;
     }
 }
 
@@ -383,12 +393,12 @@ fn clearly_not_html(url: &str) -> bool {
         !url.starts_with("http")
 }
 
-fn add_links(source: &Url, document: &str, state: &CrawlerState, handler: &TaskHandler<String>) {
+async fn add_links(source: &Url, document: &str, state: &CrawlerState, handler: &TaskHandler<String>) {
     let links = state.link_re.find_iter(document)
         .map(|m| m.as_str())
         .map(|s| &s[6..s.len() - 1])
         .filter_map(|href| source.join(href).ok())
-        .filter(|url| is_academic(url, &state.academic_re));
+        .filter(|url| is_academic(url, &state.academic_re)).collect::<Vec<_>>();
     for mut url in links {
         url.set_fragment(None);
         url.set_query(None);
@@ -403,7 +413,7 @@ fn add_links(source: &Url, document: &str, state: &CrawlerState, handler: &TaskH
             state.seen.insert(h);
             if let Some(host) = url.host_str() {
                 let d = hash64(host);
-                handler.push(url.into_string(), d as usize);
+                handler.push(url.into_string(), d as usize).await;
                 state.total_counter.fetch_add(1, Ordering::Relaxed);
             }
         }
@@ -422,7 +432,7 @@ struct UrlMeta {
     n_terms: u32,
 }
 
-fn index_document(url: &str, id: usize, document: &str, state: &CrawlerState) -> Option<()> {
+async fn index_document(url: &str, id: usize, document: &str, state: &CrawlerState) -> Option<()> {
     // println!("indexing {}", url);
     // println!("doc: {}", document);
     let mut terms = BTreeMap::<String, u32>::new();
@@ -442,8 +452,8 @@ fn index_document(url: &str, id: usize, document: &str, state: &CrawlerState) ->
 
     let n_terms: u32 = terms.iter().map(|(_, n)| n).sum();
 
-    let mut index = state.index.lock().unwrap();
-    let mut meta = state.meta.lock().unwrap();
+    let mut index = state.index.lock().await;
+    let mut meta = state.meta.lock().await;
     for (term, count) in terms {
         index.add(term, Posting { url_id: id as u32, count });
     }
@@ -503,10 +513,10 @@ async fn crawl_url(
     let document = std::str::from_utf8(&data)?;
 
     if is_academic(&source, &state.academic_re) {
-        add_links(&source, document, state, handler);
+        add_links(&source, document, state, handler).await;
     }
 
-    index_document(url, id, document, state);
+    index_document(url, id, document, state).await;
 
     Ok(())
 }
@@ -529,7 +539,7 @@ async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, id: usi
     let mut robots = BTreeMap::new();
     let mut was_active = false;
     loop {
-        let url = match handler.pop() {
+        let url = match handler.pop().await {
             Some(url) => {
                 if !was_active {
                     state.active_counter.fetch_add(1, Ordering::Relaxed);
@@ -674,7 +684,8 @@ fn url_monitor(time_counter: Arc<AtomicUsize>, total_counter: Arc<AtomicUsize>, 
     }
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let time_counter = Arc::new(AtomicUsize::new(0));
     let total_counter = Arc::new(AtomicUsize::new(0));
     let url_counter = Arc::new(AtomicUsize::new(0));
@@ -690,7 +701,7 @@ fn main() {
     let pool = TaskPool::new(swap_dir, SWAP_CAP, core_ids.len() * max_conns);
     let seen = Arc::new(cbloom::Filter::new(BLOOM_BYTES, EST_URLS));
     for url in &ROOT_SET {
-        pool.push(String::from(*url));
+        pool.push(String::from(*url)).await;
     }
     let monitor_handle = {
         let time_counter = time_counter.clone();
