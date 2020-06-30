@@ -700,7 +700,7 @@ async fn main() {
     let swap_dir = top_dir.join("swap");
     let index_dir = top_dir.join("index");
     let meta_dir = top_dir.join("meta");
-    let core_ids = core_affinity::get_core_ids().unwrap();
+    let core_ids = core_affinity::get_core_ids().unwrap().into_iter().take(64).collect::<Vec<_>>();
     let pool = TaskPool::new(swap_dir, SWAP_CAP, core_ids.len() * max_conns);
     let seen = Arc::new(cbloom::Filter::new(BLOOM_BYTES, EST_URLS));
     for url in &ROOT_SET {
