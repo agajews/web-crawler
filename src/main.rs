@@ -575,7 +575,7 @@ async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, id: usi
         }
         state.url_counter.fetch_add(1, Ordering::Relaxed);
         url_id += 1;
-        if url_id % 1000 == 0 {
+        if url_id % 300 == 0 {
             drop(client);
             client = build_client(&state);
         }
