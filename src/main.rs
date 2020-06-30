@@ -165,11 +165,9 @@ impl<K: Serialize + DeserializeOwned + Ord + Send + 'static, V: Serialize + Dese
             std::mem::swap(&mut self.cache, &mut cache);
             self.cache_len = 0;
             let path = self.db_path(self.db_count);
-            let done_str = format!("done blocking for {:?}", path);
             println!("writing to disk: {:?}", path);
             self.db_count += 1;
             thread::spawn(move || Self::dump_cache(cache, path));
-            println!("{}", done_str);
         }
     }
 
@@ -210,6 +208,7 @@ impl<K: Serialize + DeserializeOwned + Ord + Send + 'static, V: Serialize + Dese
             let mut cache = BTreeMap::new();
             std::mem::swap(&mut self.cache, &mut cache);
             let dir = self.dir.clone();
+            println!("writing to disk: {:?}", dir);
             thread::spawn(move || Self::dump_cache(cache, dir));
         }
     }
