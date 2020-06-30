@@ -36,6 +36,7 @@ use sled;
 use tokio::fs::File;
 use tokio::io::{AsyncWriteExt, AsyncReadExt};
 use tokio::sync::Mutex;
+use pnet::datalink;
 
 // variables to set:
 // META_DIR - directory of metadata databases
@@ -523,21 +524,28 @@ async fn crawl_url(
     Ok(())
 }
 
-fn build_client() -> Client {
+fn build_client(state: &CrawlerState) -> Client {
     // TODO: optimize request size
+    let ips = datalink::interfaces()
+        .into_iter()
+        .map(|interface| interface.ips)
+        .flatten()
+        .collect::<Vec<_>>();
+    let ip = ips[state.coreid % ips.len()].ip();
     Client::builder()
         .user_agent(USER_AGENT)
         .danger_accept_invalid_certs(true)
         .danger_accept_invalid_hostnames(true)
         .redirect(Policy::limited(100))
         .timeout(Duration::from_secs(60))
+        .local_address(ip)
         .build().unwrap()
 }
 
 async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, id: usize) {
     // delay_for(Duration::from_millis(100 * id as u64)).await;
     let mut url_id = 0;
-    let mut client = build_client();
+    let mut client = build_client(&state);
     let mut robots = BTreeMap::new();
     let mut was_active = false;
     loop {
@@ -559,7 +567,7 @@ async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, id: usi
         };
         if let Err(err) = crawl_url(&url, id, &client, &mut robots, &state, &handler).await {
             state.err_counter.fetch_add(1, Ordering::Relaxed);
-            if state.tid < 1 {
+            if state.coreid < 1 {
                 println!("error crawling {}: {:?}", url, err);
             }
         }
@@ -567,13 +575,13 @@ async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, id: usi
         url_id += 1;
         if url_id % 100 == 0 {
             drop(client);
-            client = build_client();
+            client = build_client(&state);
         }
     }
 }
 
 struct CrawlerState {
-    tid: usize,
+    coreid: usize,
     seen: Arc<cbloom::Filter>,
     time_counter: Arc<AtomicUsize>,
     total_counter: Arc<AtomicUsize>,
@@ -626,7 +634,7 @@ fn crawler_core(
         .unwrap();
 
     let state = Arc::new(CrawlerState {
-        tid: coreid.id,
+        coreid: coreid.id,
         seen,
         time_counter,
         total_counter,
@@ -700,7 +708,8 @@ async fn main() {
     let swap_dir = top_dir.join("swap");
     let index_dir = top_dir.join("index");
     let meta_dir = top_dir.join("meta");
-    let core_ids = core_affinity::get_core_ids().unwrap().into_iter().take(64).collect::<Vec<_>>();
+    // let core_ids = core_affinity::get_core_ids().unwrap().into_iter().take(64).collect::<Vec<_>>();
+    let core_ids = core_affinity::get_core_ids().unwrap();
     let pool = TaskPool::new(swap_dir, SWAP_CAP, core_ids.len() * max_conns);
     let seen = Arc::new(cbloom::Filter::new(BLOOM_BYTES, EST_URLS));
     for url in &ROOT_SET {
