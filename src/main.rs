@@ -687,7 +687,7 @@ fn main() {
     let index_dir: PathBuf = env::var("INDEX_DIR").unwrap().into();
     let meta_dir: PathBuf = env::var("META_DIR").unwrap().into();
     let core_ids = core_affinity::get_core_ids().unwrap();
-    let pool = TaskPool::new(swap_dir, SWAP_CAP, core_ids.len() * max_conns);
+    let pool = TaskPool::new(swap_dir, SWAP_CAP, max_conns);
     let seen = Arc::new(cbloom::Filter::new(BLOOM_BYTES, EST_URLS));
     for url in &ROOT_SET {
         pool.push(String::from(*url));
