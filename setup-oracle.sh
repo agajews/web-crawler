@@ -24,8 +24,9 @@ sudo su -c "echo 'net.ipv4.tcp_sack = 1' >> /etc/sysctl.conf"
 sudo su -c "echo 'net.ipv4.tcp_no_metrics_save = 1' >> /etc/sysctl.conf"
 sudo su -c "echo 'net.core.netdev_max_backlog = 20000' >> /etc/sysctl.conf"
 sudo sysctl -p
-sudo ifconfig eth0 txqueuelen 10000
-sudo ethtool -G eth0 rx 16384
+# sudo ifconfig eth0 txqueuelen 10000
+# sudo ethtool -G eth0 rx 16384
+sudo ethtool -L eno1 combined 74
 
 sudo yum install -y dnsmasq bind-utils
 sudo groupadd -r dnsmasq
