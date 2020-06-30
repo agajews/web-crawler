@@ -554,7 +554,7 @@ async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, id: usi
                     state.active_counter.fetch_sub(1, Ordering::Relaxed);
                     was_active = false;
                 }
-                delay_for(Duration::from_secs(1)).await; continue;
+                delay_for(Duration::from_millis(10)).await; continue;
             },
         };
         if let Err(err) = crawl_url(&url, id, &client, &mut robots, &state, &handler).await {
@@ -696,9 +696,10 @@ async fn main() {
     let robots_hit_counter = Arc::new(AtomicUsize::new(0));
     let args = env::args().collect::<Vec<_>>();
     let max_conns: usize = args[1].parse().unwrap();
-    let swap_dir: PathBuf = env::var("SWAP_DIR").unwrap().into();
-    let index_dir: PathBuf = env::var("INDEX_DIR").unwrap().into();
-    let meta_dir: PathBuf = env::var("META_DIR").unwrap().into();
+    let top_dir: PathBuf = env::var("CRAWLER_DIR").unwrap().into();
+    let swap_dir = top_dir.join("swap");
+    let index_dir = top_dir.join("index");
+    let meta_dir = top_dir.join("meta");
     let core_ids = core_affinity::get_core_ids().unwrap();
     let pool = TaskPool::new(swap_dir, SWAP_CAP, core_ids.len() * max_conns);
     let seen = Arc::new(cbloom::Filter::new(BLOOM_BYTES, EST_URLS));
