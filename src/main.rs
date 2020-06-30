@@ -159,13 +159,14 @@ impl<K: Serialize + DeserializeOwned + Ord + Send + 'static, V: Serialize + Dese
         self.cache_len += 1;
         if self.cache_len > self.capacity {
             let mut cache = BTreeMap::new();
-            println!("swapping...");
             std::mem::swap(&mut self.cache, &mut cache);
-            println!("done");
             self.cache_len = 0;
             let path = self.db_path(self.db_count);
+            let done_str = format!("done blocking for {:?}", path);
+            println!("writing to disk: {:?}", path);
             self.db_count += 1;
             thread::spawn(move || Self::dump_cache(cache, path));
+            println!("{}", done_str);
         }
     }
 
