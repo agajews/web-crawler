@@ -526,21 +526,21 @@ async fn crawl_url(
 
 fn build_client(state: &CrawlerState) -> Client {
     // TODO: optimize request size
-    let ips = datalink::interfaces()
-        .into_iter()
-        .filter(|interface| !interface.is_loopback())
-        .map(|interface| interface.ips)
-        .flatten()
-        .collect::<Vec<_>>();
-    let ip = ips[state.coreid % ips.len()].ip();
-    println!("building client on ip {}", ip);
+    // let ips = datalink::interfaces()
+    //     .into_iter()
+    //     .filter(|interface| !interface.is_loopback())
+    //     .map(|interface| interface.ips)
+    //     .flatten()
+    //     .collect::<Vec<_>>();
+    // let ip = ips[state.coreid % ips.len()].ip();
+    // println!("building client on ip {}", ip);
     Client::builder()
         .user_agent(USER_AGENT)
         .danger_accept_invalid_certs(true)
         .danger_accept_invalid_hostnames(true)
         .redirect(Policy::limited(100))
         .timeout(Duration::from_secs(60))
-        .local_address(ip)
+        // .local_address(ip)
         .build().unwrap()
 }
 
@@ -575,7 +575,7 @@ async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, id: usi
         }
         state.url_counter.fetch_add(1, Ordering::Relaxed);
         url_id += 1;
-        if url_id % 300 == 0 {
+        if url_id % 1000 == 0 {
             drop(client);
             client = build_client(&state);
         }
