@@ -310,7 +310,7 @@ async fn fetch_robots(url: &Url, client: &Client, state: &CrawlerState) -> Optio
     let mut data = Vec::new();
     while let Some(Ok(chunk)) = stream.next().await {
         total_len += chunk.len();
-        if total_len > 256_000 {
+        if total_len > 128_000 {
             return None;
         }
         data.extend_from_slice(&chunk);
