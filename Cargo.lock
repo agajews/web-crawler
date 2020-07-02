@@ -594,9 +594,7 @@ checksum = "cd179ae861f0c2e53da70d892f5f3029f9594be0c41dc5269cd371691b1dc2f9"
 
 [[package]]
 name = "hyper"
-version = "0.13.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a6e7655b9594024ad0ee439f3b5a7299369dc2a3f459b47c696f9ff676f9aa1f"
+version = "0.13.4"
 dependencies = [
  "bytes",
  "futures-channel",
@@ -608,8 +606,8 @@ dependencies = [
  "httparse",
  "itoa",
  "log 0.4.8",
+ "net2",
  "pin-project",
- "socket2",
  "time",
  "tokio",
  "tower-service",
@@ -619,8 +617,6 @@ dependencies = [
 [[package]]
 name = "hyper-tls"
 version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3adcd308402b9553630734e9c36b77a7e48b3821251ca2493e8cd596763aafaa"
 dependencies = [
  "bytes",
  "hyper",
