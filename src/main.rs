@@ -551,6 +551,7 @@ async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, id: usi
     let mut client = build_client(&state);
     let mut robots = BTreeMap::new();
     let mut was_active = false;
+    let url_offset = rand::thread_rng().gen::<usize>() % 1000;
     loop {
         let url = match handler.pop().await {
             Some(url) => {
@@ -576,7 +577,7 @@ async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, id: usi
         }
         state.url_counter.fetch_add(1, Ordering::Relaxed);
         url_id += 1;
-        if url_id % 1000 == 0 {
+        if (url_id + url_offset) % 1000 == 0 {
             drop(client);
             client = build_client(&state);
         }
