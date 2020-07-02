@@ -1,5 +1,9 @@
 #!/bin/bash
 
+git clone https://github.com/agajews/hyper-tls.git ../hyper-tls
+git clone https://github.com/agajews/hyper.git ../hyper
+git clone https://github.com/agajews/hyper-rustls.git ../hyper-rustls
+git clone https://github.com/agajews/reqwest.git ../reqwest
 sudo yum install -y gcc gcc-c++ pkg-config openssl-devel git
 sudo yum install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
 sudo yum install -y htop nload perf tmux
