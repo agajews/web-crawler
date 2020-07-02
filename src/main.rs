@@ -63,8 +63,7 @@ const ROOT_SET: [&str; 4] = [
 const BLOOM_BYTES: usize = 10_000_000_000;
 const EST_URLS: usize = 1_000_000_000;
 const SWAP_CAP: usize = 1_000;
-const INDEX_CAP: usize = 10_000_000;
-const META_CAP: usize = 10_000;
+const INDEX_CAP: usize = 10_000;
 const CLIENT_DROP: usize = 10_000;
 
 lazy_static! {
@@ -140,22 +139,16 @@ impl<T: Serialize + DeserializeOwned> DiskDeque<T> {
 
 struct DiskMultiMap<K, V> {
     cache: BTreeMap<K, Vec<V>>,
-    cache_len: usize,
-    capacity: usize,
     dir: PathBuf,
-    db_count: usize,
 }
 
 impl<K: Serialize + DeserializeOwned + Ord + Send + 'static, V: Serialize + DeserializeOwned + Send + 'static> DiskMultiMap<K, V> {
-    fn new<P: Into<PathBuf>>(dir: P, capacity: usize) -> Self {
+    fn new<P: Into<PathBuf>>(dir: P) -> Self {
         let dir = dir.into();
         fs::create_dir_all(&dir).unwrap();
         DiskMultiMap {
             cache: BTreeMap::new(),
-            cache_len: 0,
-            capacity: capacity,
             dir: dir,
-            db_count: 0,
         }
     }
 
@@ -164,18 +157,13 @@ impl<K: Serialize + DeserializeOwned + Ord + Send + 'static, V: Serialize + Dese
             Some(vec) => vec.push(value),
             None => { self.cache.insert(key, vec![value]); () },
         }
-        self.cache_len += 1;
     }
 
-    fn maybe_dump(&mut self) {
-        if self.cache_len > self.capacity {
-            let mut cache = BTreeMap::new();
-            std::mem::swap(&mut self.cache, &mut cache);
-            self.cache_len = 0;
-            let path = self.db_path(self.db_count);
-            self.db_count += 1;
-            thread::spawn(move || Self::dump_cache(cache, path));
-        }
+    fn dump(&mut self, idx: usize) {
+        let mut cache = BTreeMap::new();
+        std::mem::swap(&mut self.cache, &mut cache);
+        let path = self.db_path(idx);
+        thread::spawn(move || Self::dump_cache(cache, path));
     }
 
     fn db_path(&self, idx: usize) -> PathBuf {
@@ -197,29 +185,31 @@ impl<K: Serialize + DeserializeOwned + Ord + Send + 'static, V: Serialize + Dese
 struct DiskMap<K, V> {
     dir: PathBuf,
     cache: BTreeMap<K, V>,
-    capacity: usize,
 }
 
 impl<K: Serialize + DeserializeOwned + Ord + Send + 'static, V: Serialize + DeserializeOwned + Send + 'static> DiskMap<K, V> {
-    fn new<P: Into<PathBuf>>(dir: P, capacity: usize) -> Self {
+    fn new<P: Into<PathBuf>>(dir: P) -> Self {
         let dir = dir.into();
         fs::create_dir_all(&dir).unwrap();
         DiskMap {
             dir,
             cache: BTreeMap::new(),
-            capacity,
         }
     }
 
     fn insert(&mut self, key: K, value: V) {
         self.cache.insert(key, value);
-        if self.cache.len() > self.capacity {
-            let mut cache = BTreeMap::new();
-            std::mem::swap(&mut self.cache, &mut cache);
-            let dir = self.dir.clone();
-            println!("writing to disk: {:?}", dir);
-            thread::spawn(move || Self::dump_cache(cache, dir));
-        }
+    }
+
+    fn dump(&mut self, idx: usize) {
+        let mut cache = BTreeMap::new();
+        std::mem::swap(&mut self.cache, &mut cache);
+        let path = self.db_path(idx);
+        thread::spawn(move || Self::dump_cache(cache, path));
+    }
+
+    fn db_path(&self, idx: usize) -> PathBuf {
+        self.dir.join(format!("db{}", idx))
     }
 
     fn dump_cache(cache: BTreeMap<K, V>, path: PathBuf) {
@@ -310,7 +300,7 @@ async fn fetch_robots(url: &Url, client: &Client, state: &CrawlerState) -> Optio
     let mut data = Vec::new();
     while let Some(Ok(chunk)) = stream.next().await {
         total_len += chunk.len();
-        if total_len > 128_000 {
+        if total_len > 256_000 {
             return None;
         }
         data.extend_from_slice(&chunk);
@@ -461,8 +451,12 @@ async fn index_document(url: &str, id: usize, document: &str, state: &CrawlerSta
     for (term, count) in terms {
         index.add(term, Posting { url_id: id as u32, count });
     }
-    index.maybe_dump();
     meta.insert(id as u32, UrlMeta { url: String::from(url), n_terms });
+
+    if (id + 1) % INDEX_CAP == 0 {
+        index.dump(id);
+        meta.dump(id);
+    }
 
     Some(())
 }
@@ -545,15 +539,19 @@ fn build_client(state: &CrawlerState) -> Client {
         .build().unwrap()
 }
 
-async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, id: usize) {
-    // delay_for(Duration::from_millis(100 * id as u64)).await;
+async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>) {
     // TODO: global url counter
-    let mut url_id = 0;
+    let mut local_url_count = 0;
     let mut client = build_client(&state);
     let mut robots = BTreeMap::new();
     let mut was_active = false;
     let url_offset = rand::thread_rng().gen::<usize>() % CLIENT_DROP;
     loop {
+        let url_id = {
+            let mut core_url_count = state.url_count.lock().await;
+            *core_url_count += 1;
+            *core_url_count
+        };
         let url = match handler.pop().await {
             Some(url) => {
                 if !was_active {
@@ -570,15 +568,15 @@ async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, id: usi
                 delay_for(Duration::from_secs(10)).await; continue;
             },
         };
-        if let Err(err) = crawl_url(&url, id, &client, &mut robots, &state, &handler).await {
+        if let Err(err) = crawl_url(&url, url_id, &client, &mut robots, &state, &handler).await {
             state.err_counter.fetch_add(1, Ordering::Relaxed);
             if state.coreid < 1 {
                 println!("error crawling {}: {:?}", url, err);
             }
         }
         state.url_counter.fetch_add(1, Ordering::Relaxed);
-        url_id += 1;
-        if (url_id + url_offset) % CLIENT_DROP == 0 {
+        local_url_count += 1;
+        if (local_url_count + url_offset) % CLIENT_DROP == 0 {
             drop(client);
             client = build_client(&state);
         }
@@ -594,6 +592,7 @@ struct CrawlerState {
     err_counter: Arc<AtomicUsize>,
     active_counter: Arc<AtomicUsize>,
     robots_hit_counter: Arc<AtomicUsize>,
+    url_count: Mutex<usize>,
     academic_re: Regex,
     link_re: Regex,
     disallow_re: Regex,
@@ -628,8 +627,9 @@ fn crawler_core(
 
     let index_dir = index_dir.join(format!("core{}", coreid.id));
     let meta_dir = meta_dir.join(format!("core{}", coreid.id));
-    let index = Mutex::new(DiskMultiMap::new(index_dir, INDEX_CAP));
-    let meta = Mutex::new(DiskMap::new(meta_dir, META_CAP));
+    let index = Mutex::new(DiskMultiMap::new(index_dir));
+    let meta = Mutex::new(DiskMap::new(meta_dir));
+    let url_count = Mutex::new(0);
 
     let mut rt = runtime::Builder::new()
         .basic_scheduler()
@@ -647,6 +647,7 @@ fn crawler_core(
         err_counter,
         active_counter,
         robots_hit_counter,
+        url_count,
         academic_re,
         link_re,
         disallow_re,
@@ -660,9 +661,9 @@ fn crawler_core(
     for (id, handler) in handlers.into_iter().enumerate() {
         let state = state.clone();
         if id < max_conns - 1 {
-            rt.spawn(crawler(state, handler, id));
+            rt.spawn(crawler(state, handler));
         } else {
-            rt.block_on(crawler(state, handler, id));
+            rt.block_on(crawler(state, handler));
         }
     }
 
