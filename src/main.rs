@@ -513,13 +513,13 @@ async fn crawl_url(
 
     state.time_counter.fetch_add(start.elapsed().as_millis() as usize, Ordering::Relaxed);
 
-    let document = std::str::from_utf8(&data)?;
+    let document = String::from_utf8_lossy(&data);
 
     if is_academic(&source, &state.academic_re) {
-        add_links(&source, document, state, handler).await;
+        add_links(&source, &document, state, handler).await;
     }
 
-    index_document(url, id, document, state).await;
+    index_document(url, id, &document, state).await;
 
     Ok(())
 }
