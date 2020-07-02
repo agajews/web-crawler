@@ -65,6 +65,7 @@ const EST_URLS: usize = 1_000_000_000;
 const SWAP_CAP: usize = 1_000;
 const INDEX_CAP: usize = 10_000_000;
 const META_CAP: usize = 10_000;
+const CLIENT_DROP: usize = 10_000;
 
 lazy_static! {
     static ref ACADEMIC_RE: Regex = Regex::new(r"^.+\.(edu|ac\.??)$").unwrap();
@@ -551,7 +552,7 @@ async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, id: usi
     let mut client = build_client(&state);
     let mut robots = BTreeMap::new();
     let mut was_active = false;
-    let url_offset = rand::thread_rng().gen::<usize>() % 1000;
+    let url_offset = rand::thread_rng().gen::<usize>() % CLIENT_DROP;
     loop {
         let url = match handler.pop().await {
             Some(url) => {
@@ -577,7 +578,7 @@ async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, id: usi
         }
         state.url_counter.fetch_add(1, Ordering::Relaxed);
         url_id += 1;
-        if (url_id + url_offset) % 1000 == 0 {
+        if (url_id + url_offset) % CLIENT_DROP == 0 {
             drop(client);
             client = build_client(&state);
         }
