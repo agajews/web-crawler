@@ -4,8 +4,8 @@ sudo yum install -y gcc gcc-c++ pkg-config openssl-devel git
 sudo yum install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
 sudo yum install -y htop nload perf tmux
 sudo yum install -y nfs-utils NetworkManager
-sudo mkdir -p /mnt/web-crawler-fs
-sudo mount 10.0.0.5:/web-crawler-fs /mnt/web-crawler-fs
+# sudo mkdir -p /mnt/web-crawler-fs
+# sudo mount 10.0.0.5:/web-crawler-fs /mnt/web-crawler-fs
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 source $HOME/.cargo/env
 cargo build --release
