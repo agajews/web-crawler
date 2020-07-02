@@ -1,0 +1,18 @@
+network:
+  bonds: {}
+  bridges: {}
+  ethernets:
+    eno1np0:
+      critical: true
+      dhcp-identifier: mac
+      dhcp4: true
+      match:
+        macaddress: 00:10:e0:ec:b0:78
+      nameservers:
+        addresses:
+        - 169.254.169.254
+        search:
+        - vcn.oraclevcn.com
+      set-name: eno1np0
+  vlans: {}
+  wifis: {}

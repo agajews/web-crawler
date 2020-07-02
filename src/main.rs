@@ -526,26 +526,27 @@ async fn crawl_url(
 
 fn build_client(state: &CrawlerState) -> Client {
     // TODO: optimize request size
-    // let ips = datalink::interfaces()
-    //     .into_iter()
-    //     .filter(|interface| !interface.is_loopback())
-    //     .map(|interface| interface.ips)
-    //     .flatten()
-    //     .collect::<Vec<_>>();
-    // let ip = ips[state.coreid % ips.len()].ip();
-    // println!("building client on ip {}", ip);
+    let ips = datalink::interfaces()
+        .into_iter()
+        .filter(|interface| !interface.is_loopback())
+        .map(|interface| interface.ips)
+        .flatten()
+        .collect::<Vec<_>>();
+    let ip = ips[state.coreid % ips.len()].ip();
+    println!("building client on ip {}", ip);
     Client::builder()
         .user_agent(USER_AGENT)
         .danger_accept_invalid_certs(true)
         .danger_accept_invalid_hostnames(true)
         .redirect(Policy::limited(100))
         .timeout(Duration::from_secs(60))
-        // .local_address(ip)
+        .local_address(ip)
         .build().unwrap()
 }
 
 async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>, id: usize) {
     // delay_for(Duration::from_millis(100 * id as u64)).await;
+    // TODO: global url counter
     let mut url_id = 0;
     let mut client = build_client(&state);
     let mut robots = BTreeMap::new();
