@@ -53,11 +53,11 @@ const ROOT_SET: [&str; 4] = [
 
 // PROD
 
-const BLOOM_BYTES: usize = 10_000_000_000;
-const EST_URLS: usize = 1_000_000_000;
+const BLOOM_BYTES: usize = 20_000_000_000;
+const EST_URLS: usize = 5_000_000_000;
 const SWAP_CAP: usize = 1_000;
 const INDEX_CAP: usize = 100_000;
-const CLIENT_DROP: usize = 500;
+const CLIENT_DROP: usize = 100;
 
 lazy_static! {
     static ref ACADEMIC_RE: Regex = Regex::new(r"^.+\.(edu|ac\.??)$").unwrap();
@@ -299,7 +299,7 @@ fn build_client(state: &CrawlerState) -> Client {
         .flatten()
         .collect::<Vec<_>>();
     let ip = ips[state.coreid % ips.len()].ip();
-    println!("building client on ip {}", ip);
+    // println!("building client on ip {}", ip);
     Client::builder()
         .user_agent(USER_AGENT)
         .danger_accept_invalid_certs(true)
