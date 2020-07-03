@@ -13,6 +13,8 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use std::io::prelude::*;
 
+const DUMP_THREADS: usize = 100;
+
 pub struct DiskDeque<T> {
     front: VecDeque<T>,
     back: VecDeque<T>,
@@ -111,16 +113,23 @@ impl<V: Serialize + DeserializeOwned + Send + 'static> DiskMultiMap<V> {
     async fn dump_cache(cache: BTreeMap<String, Vec<V>>, path: PathBuf) {
         println!("writing to disk: {:?}", path);
         fs::create_dir_all(&path).unwrap();
+        let cache = Arc::new(Mutex::new(cache.into_iter().collect::<Vec<_>>()));
         let mut futures = Vec::new();
-        for (key, vec) in cache {
+        for _ in 0..DUMP_THREADS {
+            let cache = cache.clone();
             let path = path.clone();
-            let future = tokio::spawn(async move {
-                let mut file = tokio::fs::File::create(path.join(key)).await.unwrap();
-                let bytes = serialize(&vec).unwrap();
-                file.write_all(&bytes).await.unwrap();
-                file.sync_all().await.unwrap();
-            });
-            futures.push(future);
+            futures.push(tokio::spawn(async move {
+                loop {
+                    let (key, vec) = match cache.lock().await.pop() {
+                        Some(data) => data,
+                        None => break,
+                    };
+                    let mut file = tokio::fs::File::create(path.join(key)).await.unwrap();
+                    let bytes = serialize(&vec).unwrap();
+                    file.write_all(&bytes).await.unwrap();
+                    file.sync_all().await.unwrap();
+                }
+            }));
         }
         for future in futures {
             future.await.unwrap();
