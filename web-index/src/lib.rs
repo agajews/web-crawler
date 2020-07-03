@@ -236,3 +236,44 @@ pub struct UrlMeta {
     pub n_terms: u32,
 }
 
+pub struct IndexShard {
+    index: sled::Db,
+    meta: sled::Db,
+}
+
+impl IndexShard {
+    pub fn open<P: AsRef<Path>, Q: AsRef<Path>>(index_dir: P, meta_dir: Q, idx: usize) -> IndexShard {
+        let index = sled::open(index_dir.as_ref().join(format!("db{}", idx))).unwrap();
+        let meta = sled::open(meta_dir.as_ref().join(format!("db{}", idx))).unwrap();
+        Self { index, meta }
+    }
+
+    pub fn open_all<P: AsRef<Path>, Q: AsRef<Path>>(index_dir: P, meta_dir: Q) -> Vec<IndexShard> {
+        let mut idxs = Vec::new();
+        for core_entry in fs::read_dir(&index_dir).unwrap() {
+            for db_entry in fs::read_dir(core_entry.unwrap().path()).unwrap() {
+                let path = db_entry.unwrap().path();
+                let filename = path.file_name().unwrap().to_str().unwrap();
+                let idx = filename[2..].parse::<usize>().unwrap();
+                idxs.push(idx);
+            }
+        }
+        idxs.sort();
+        let mut shards = Vec::new();
+        for idx in &idxs[0..(idxs.len() - 1)] {
+            shards.push(Self::open(&index_dir, &meta_dir, *idx));
+        }
+        shards
+    }
+
+    pub fn get_postings(&self, term: &str) -> Vec<Posting> {
+        match self.index.get(&serialize(term).unwrap()).unwrap() {
+            Some(bytes) => deserialize(&bytes).unwrap(),
+            None => Vec::new(),
+        }
+    }
+
+    pub fn get_meta(&self, url_id: u32) -> UrlMeta {
+        deserialize(&self.meta.get(&serialize(&url_id).unwrap()).unwrap().unwrap()).unwrap()
+    }
+}
