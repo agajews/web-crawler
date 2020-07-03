@@ -8,9 +8,10 @@ use rand;
 use rand::Rng;
 use std::collections::{VecDeque, BTreeMap};
 use tokio::fs::File;
-use tokio::io::{AsyncWriteExt, AsyncReadExt};
+use tokio::prelude::*;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use std::io::prelude::*;
 
 pub struct DiskDeque<T> {
     front: VecDeque<T>,
@@ -69,7 +70,8 @@ impl<T: Serialize + DeserializeOwned> DiskDeque<T> {
 
     async fn dump_swap(&self, idx: usize) {
         let mut file = File::create(self.swap_path(idx)).await.unwrap();
-        file.write_all(&serialize(&self.back).unwrap()).await.unwrap()
+        file.write_all(&serialize(&self.back).unwrap()).await.unwrap();
+        file.sync_all().await.unwrap();
     }
 }
 
@@ -110,7 +112,9 @@ impl<V: Serialize + DeserializeOwned + Send + 'static> DiskMultiMap<V> {
         println!("writing to disk: {:?}", path);
         fs::create_dir_all(&path).unwrap();
         for (key, vec) in cache {
-            fs::write(path.join(key), serialize(&vec).unwrap()).unwrap();
+            let mut file = fs::File::create(path.join(key)).unwrap();
+            file.write_all(&serialize(&vec).unwrap()).unwrap();
+            file.sync_all().unwrap();
         }
         println!("finished writing to {:?}", path);
     }
@@ -148,7 +152,9 @@ impl<K: Serialize + DeserializeOwned + Ord + Send + 'static, V: Serialize + Dese
 
     fn dump_cache(cache: BTreeMap<K, V>, path: PathBuf) {
         println!("writing to disk: {:?}", path);
-        fs::write(&path, serialize(&cache).unwrap()).unwrap();
+        let mut file = fs::File::create(&path).unwrap();
+        file.write_all(&serialize(&cache).unwrap()).unwrap();
+        file.sync_all().unwrap();
         println!("finished writing to {:?}", path);
     }
 }
