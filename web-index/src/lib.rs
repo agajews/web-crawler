@@ -230,9 +230,9 @@ impl IndexShard {
     pub fn open<P: Into<PathBuf>, Q: AsRef<Path>>(index_dir: P, meta_dir: Q, core: &str, idx: usize) -> Option<IndexShard> {
         let index_dir = index_dir.into().join(core).join(format!("db{}", idx));
         let path = meta_dir.as_ref().join(core).join(format!("db{}", idx));
-        println!("trying to read bytes from {:?}", path);
+        // println!("trying to read bytes from {:?}", path);
         let bytes = fs::read(&path).ok()?;
-        println!("read bytes from {:?}", path);
+        // println!("read bytes from {:?}", path);
         let meta = deserialize(&bytes).ok()?;
         Some(Self { index_dir, meta })
     }
@@ -246,7 +246,7 @@ impl IndexShard {
                 let path = db_entry.unwrap().path();
                 let filename = path.file_name().unwrap().to_str().unwrap();
                 let idx = filename[2..].parse::<usize>().unwrap();
-                println!("found index {}", idx);
+                // println!("found index {}", idx);
                 let parent = String::from(path.parent().unwrap().file_name().unwrap().to_str().unwrap());
                 idxs.push((parent, idx));
             }
@@ -268,7 +268,9 @@ impl IndexShard {
     }
 
     fn read_postings(&self, term: &str) -> Option<Vec<Posting>> {
-        deserialize(&fs::read(self.index_dir.join(term)).ok()?).ok()?
+        let path = self.index_dir.join(term);
+        println!("looking for {:?}", path);
+        deserialize(&fs::read(path).ok()?).ok()?
     }
 
     pub fn get_meta(&self, url_id: u32) -> Option<&UrlMeta> {
