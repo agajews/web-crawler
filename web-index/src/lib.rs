@@ -13,7 +13,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use std::io::prelude::*;
 
-const DUMP_THREADS: usize = 100;
+const DUMP_THREADS: usize = 50;
 
 pub struct DiskDeque<T> {
     front: VecDeque<T>,
