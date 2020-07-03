@@ -229,7 +229,9 @@ pub struct IndexShard {
 impl IndexShard {
     pub fn open<P: Into<PathBuf>, Q: AsRef<Path>>(index_dir: P, meta_dir: Q, idx: usize) -> Option<IndexShard> {
         let index_dir = index_dir.into();
-        let meta = deserialize(&fs::read(meta_dir.as_ref().join(format!("db{}", idx))).ok()?).ok()?;
+        let bytes = fs::read(meta_dir.as_ref().join(format!("db{}", idx))).unwrap();
+        println!("read bytes from {:?}", meta_dir.as_ref());
+        let meta = deserialize(&bytes).unwrap();
         Some(Self { index_dir, meta })
     }
 
@@ -242,6 +244,7 @@ impl IndexShard {
                 let path = db_entry.unwrap().path();
                 let filename = path.file_name().unwrap().to_str().unwrap();
                 let idx = filename[2..].parse::<usize>().unwrap();
+                println!("found index {}", idx);
                 idxs.push(idx);
             }
         }
