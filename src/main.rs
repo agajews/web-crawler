@@ -10,12 +10,12 @@ use url::Url;
 use std::thread;
 use std::sync::Arc;
 use std::env;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
 use regex::Regex;
 // use uuid::Uuid;
-use std::path::{Path ,PathBuf};
+use std::path::PathBuf;
 use core::sync::atomic::{AtomicUsize, Ordering};
-// use web_index::{Meta, Index};
+use web_index::{DiskMap, DiskMultiMap, TaskPool, TaskHandler, Posting, UrlMeta};
 use std::time::{Instant, Duration};
 use cbloom;
 use fasthash::metro::hash64;
@@ -28,13 +28,6 @@ use core_affinity::CoreId;
 use rand;
 use rand::Rng;
 use futures_util::StreamExt;
-use bincode::{serialize, deserialize};
-use std::fs;
-use serde::{Deserialize, Serialize};
-use serde::de::DeserializeOwned;
-use sled;
-use tokio::fs::File;
-use tokio::io::{AsyncWriteExt, AsyncReadExt};
 use tokio::sync::Mutex;
 use pnet::datalink;
 
@@ -64,7 +57,7 @@ const BLOOM_BYTES: usize = 10_000_000_000;
 const EST_URLS: usize = 1_000_000_000;
 const SWAP_CAP: usize = 1_000;
 const INDEX_CAP: usize = 100_000;
-const CLIENT_DROP: usize = 1_000;
+const CLIENT_DROP: usize = 500;
 
 lazy_static! {
     static ref ACADEMIC_RE: Regex = Regex::new(r"^.+\.(edu|ac\.??)$").unwrap();
@@ -76,216 +69,6 @@ lazy_static! {
     static ref TERM_RE: Regex = Regex::new(r"[a-zA-Z]+").unwrap();
 }
 
-struct DiskDeque<T> {
-    front: VecDeque<T>,
-    back: VecDeque<T>,
-    save_start: usize,
-    save_end: usize,
-    dir: PathBuf,
-    capacity: usize,
-}
-
-impl<T: Serialize + DeserializeOwned> DiskDeque<T> {
-    fn new<P: Into<PathBuf>>(dir: P, capacity: usize) -> Self {
-        let dir = dir.into();
-        fs::create_dir_all(&dir).unwrap();
-        DiskDeque {
-            front: VecDeque::new(),
-            back: VecDeque::new(),
-            save_start: 0,
-            save_end: 0,
-            dir: dir,
-            capacity,
-        }
-    }
-
-    async fn pop(&mut self) -> Option<T> {
-        if let Some(x) = self.front.pop_front() {
-            return Some(x);
-        }
-        if self.save_start < self.save_end {
-            self.front = self.load_swap(self.save_start).await;
-            self.save_start += 1;
-            return self.front.pop_front();
-        }
-        self.back.pop_front()
-    }
-
-    async fn push(&mut self, x: T) {
-        self.back.push_back(x);
-        if self.back.len() >= self.capacity {
-            self.dump_swap(self.save_end).await;
-            self.back.clear();
-            self.save_end += 1;
-        }
-    }
-
-    fn swap_path(&self, idx: usize) -> PathBuf {
-        self.dir.join(format!("swap{}", idx))
-    }
-
-    async fn load_swap(&self, idx: usize) -> VecDeque<T> {
-        let mut file = File::open(self.swap_path(idx)).await.unwrap();
-        let mut contents = vec![];
-        file.read_to_end(&mut contents).await.unwrap();
-        deserialize(&contents).unwrap()
-    }
-
-    async fn dump_swap(&self, idx: usize) {
-        let mut file = File::create(self.swap_path(idx)).await.unwrap();
-        file.write_all(&serialize(&self.back).unwrap()).await.unwrap()
-    }
-}
-
-struct DiskMultiMap<K, V> {
-    cache: BTreeMap<K, Vec<V>>,
-    dir: PathBuf,
-}
-
-impl<K: Serialize + DeserializeOwned + Ord + Send + 'static, V: Serialize + DeserializeOwned + Send + 'static> DiskMultiMap<K, V> {
-    fn new<P: Into<PathBuf>>(dir: P) -> Self {
-        let dir = dir.into();
-        fs::create_dir_all(&dir).unwrap();
-        DiskMultiMap {
-            cache: BTreeMap::new(),
-            dir: dir,
-        }
-    }
-
-    fn add(&mut self, key: K, value: V) {
-        match self.cache.get_mut(&key) {
-            Some(vec) => vec.push(value),
-            None => { self.cache.insert(key, vec![value]); () },
-        }
-    }
-
-    fn dump(&mut self, idx: usize) {
-        let mut cache = BTreeMap::new();
-        std::mem::swap(&mut self.cache, &mut cache);
-        let path = self.db_path(idx);
-        thread::spawn(move || Self::dump_cache(cache, path));
-    }
-
-    fn db_path(&self, idx: usize) -> PathBuf {
-        self.dir.join(format!("db{}", idx))
-    }
-
-    fn dump_cache(cache: BTreeMap<K, Vec<V>>, path: PathBuf) {
-        println!("writing to disk: {:?}", path);
-        let db = sled::open(&path).unwrap();
-        let mut batch = sled::Batch::default();
-        for (key, vec) in cache {
-            batch.insert(serialize(&key).unwrap(), serialize(&vec).unwrap());
-        }
-        db.apply_batch(batch).unwrap();
-        println!("finished writing to {:?}", path);
-    }
-}
-
-struct DiskMap<K, V> {
-    dir: PathBuf,
-    cache: BTreeMap<K, V>,
-}
-
-impl<K: Serialize + DeserializeOwned + Ord + Send + 'static, V: Serialize + DeserializeOwned + Send + 'static> DiskMap<K, V> {
-    fn new<P: Into<PathBuf>>(dir: P) -> Self {
-        let dir = dir.into();
-        fs::create_dir_all(&dir).unwrap();
-        DiskMap {
-            dir,
-            cache: BTreeMap::new(),
-        }
-    }
-
-    fn insert(&mut self, key: K, value: V) {
-        self.cache.insert(key, value);
-    }
-
-    fn dump(&mut self, idx: usize) {
-        let mut cache = BTreeMap::new();
-        std::mem::swap(&mut self.cache, &mut cache);
-        let path = self.db_path(idx);
-        thread::spawn(move || Self::dump_cache(cache, path));
-    }
-
-    fn db_path(&self, idx: usize) -> PathBuf {
-        self.dir.join(format!("db{}", idx))
-    }
-
-    fn dump_cache(cache: BTreeMap<K, V>, path: PathBuf) {
-        println!("writing to disk: {:?}", path);
-        let db = sled::open(&path).unwrap();
-        let mut batch = sled::Batch::default();
-        for (key, val) in cache {
-            batch.insert(serialize(&key).unwrap(), serialize(&val).unwrap());
-        }
-        db.apply_batch(batch).unwrap();
-        println!("finished writing to {:?}", path);
-    }
-}
-
-struct TaskPool<T> {
-    pool: Arc<Vec<Mutex<DiskDeque<T>>>>,
-}
-
-struct TaskHandler<T> {
-    pool: Arc<Vec<Mutex<DiskDeque<T>>>>,
-    i: usize,
-}
-
-impl<T: Serialize + DeserializeOwned> TaskPool<T> {
-    fn new<P: AsRef<Path>>(dir: P, capacity: usize, n: usize) -> TaskPool<T> {
-        let mut pool = Vec::new();
-        let dir = dir.as_ref();
-        for i in 0..n {
-            pool.push(Mutex::new(
-                DiskDeque::new(dir.join(format!("thread{}", i)), capacity)
-            ));
-        }
-        TaskPool { pool: Arc::new(pool) }
-    }
-
-    fn handler(&self, i: usize) -> TaskHandler<T> {
-        TaskHandler { pool: self.pool.clone(), i }
-    }
-
-    async fn push(&self, task: T) {
-        let i = rand::thread_rng().gen::<usize>() % self.pool.len();
-        self.pool[i].lock().await.push(task).await;
-    }
-}
-
-impl<T: Serialize + DeserializeOwned> TaskHandler<T> {
-    async fn pop(&self) -> Option<T> {
-        let own_task = {
-            self.pool[self.i].try_lock().ok()?.pop().await
-        };
-        match own_task {
-            Some(task) => Some(task),
-            None => self.steal().await,
-        }
-    }
-
-    async fn steal(&self) -> Option<T> {
-        let j = rand::thread_rng().gen::<usize>() % self.pool.len();
-        self.try_steal(j).await
-        // for j in (self.i + 1)..=(self.i + self.pool.len()) {
-        //     if let Some(task) = self.try_steal(j).await {
-        //         return Some(task);
-        //     }
-        // }
-        // None
-    }
-
-    async fn try_steal(&self, j: usize) -> Option<T> {
-        self.pool[j % self.pool.len()].try_lock().ok()?.pop().await
-    }
-
-    async fn push(&self, task: T, d: usize) {
-        // let j = rand::thread_rng().gen::<usize>() % self.pool.len();
-        self.pool[d % self.pool.len()].lock().await.push(task).await;
-    }
-}
 
 fn is_academic(url: &Url, academic_re: &Regex) -> bool {
     url.domain()
@@ -412,18 +195,6 @@ async fn add_links(source: &Url, document: &str, state: &CrawlerState, handler: 
             }
         }
     }
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct Posting {
-    url_id: u32,
-    count: u32,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct UrlMeta {
-    url: String,
-    n_terms: u32,
 }
 
 async fn index_document(url: &str, id: usize, document: &str, state: &CrawlerState) -> Option<()> {
