@@ -1,4 +1,3 @@
-use sled;
 use bincode::{serialize, deserialize};
 use serde::{Serialize, Deserialize};
 use serde::de::DeserializeOwned;
@@ -74,12 +73,12 @@ impl<T: Serialize + DeserializeOwned> DiskDeque<T> {
     }
 }
 
-pub struct DiskMultiMap<K, V> {
-    cache: BTreeMap<K, Vec<V>>,
+pub struct DiskMultiMap<V> {
+    cache: BTreeMap<String, Vec<V>>,
     dir: PathBuf,
 }
 
-impl<K: Serialize + DeserializeOwned + Ord + Send + 'static, V: Serialize + DeserializeOwned + Send + 'static> DiskMultiMap<K, V> {
+impl<V: Serialize + DeserializeOwned + Send + 'static> DiskMultiMap<V> {
     pub fn new<P: Into<PathBuf>>(dir: P) -> Self {
         let dir = dir.into();
         fs::create_dir_all(&dir).unwrap();
@@ -89,7 +88,7 @@ impl<K: Serialize + DeserializeOwned + Ord + Send + 'static, V: Serialize + Dese
         }
     }
 
-    pub fn add(&mut self, key: K, value: V) {
+    pub fn add(&mut self, key: String, value: V) {
         match self.cache.get_mut(&key) {
             Some(vec) => vec.push(value),
             None => { self.cache.insert(key, vec![value]); () },
@@ -107,14 +106,12 @@ impl<K: Serialize + DeserializeOwned + Ord + Send + 'static, V: Serialize + Dese
         self.dir.join(format!("db{}", idx))
     }
 
-    fn dump_cache(cache: BTreeMap<K, Vec<V>>, path: PathBuf) {
+    fn dump_cache(cache: BTreeMap<String, Vec<V>>, path: PathBuf) {
         println!("writing to disk: {:?}", path);
-        let db = sled::open(&path).unwrap();
-        let mut batch = sled::Batch::default();
+        fs::create_dir_all(&path).unwrap();
         for (key, vec) in cache {
-            batch.insert(serialize(&key).unwrap(), serialize(&vec).unwrap());
+            fs::write(path.join(key), serialize(&vec).unwrap()).unwrap();
         }
-        db.apply_batch(batch).unwrap();
         println!("finished writing to {:?}", path);
     }
 }
@@ -151,12 +148,7 @@ impl<K: Serialize + DeserializeOwned + Ord + Send + 'static, V: Serialize + Dese
 
     fn dump_cache(cache: BTreeMap<K, V>, path: PathBuf) {
         println!("writing to disk: {:?}", path);
-        let db = sled::open(&path).unwrap();
-        let mut batch = sled::Batch::default();
-        for (key, val) in cache {
-            batch.insert(serialize(&key).unwrap(), serialize(&val).unwrap());
-        }
-        db.apply_batch(batch).unwrap();
+        fs::write(&path, serialize(&cache).unwrap()).unwrap();
         println!("finished writing to {:?}", path);
     }
 }
@@ -206,12 +198,6 @@ impl<T: Serialize + DeserializeOwned> TaskHandler<T> {
     async fn steal(&self) -> Option<T> {
         let j = rand::thread_rng().gen::<usize>() % self.pool.len();
         self.try_steal(j).await
-        // for j in (self.i + 1)..=(self.i + self.pool.len()) {
-        //     if let Some(task) = self.try_steal(j).await {
-        //         return Some(task);
-        //     }
-        // }
-        // None
     }
 
     async fn try_steal(&self, j: usize) -> Option<T> {
@@ -219,7 +205,6 @@ impl<T: Serialize + DeserializeOwned> TaskHandler<T> {
     }
 
     pub async fn push(&self, task: T, d: usize) {
-        // let j = rand::thread_rng().gen::<usize>() % self.pool.len();
         self.pool[d % self.pool.len()].lock().await.push(task).await;
     }
 }
@@ -237,27 +222,21 @@ pub struct UrlMeta {
 }
 
 pub struct IndexShard {
-    index: sled::Db,
-    meta: sled::Db,
+    index_dir: PathBuf,
+    meta: BTreeMap<u32, UrlMeta>,
 }
 
 impl IndexShard {
-    pub fn open<P: AsRef<Path>, Q: AsRef<Path>>(index_dir: P, meta_dir: Q, idx: usize) -> IndexShard {
-        let index = sled::Config::default()
-            .path(index_dir.as_ref().join(format!("db{}", idx)))
-            .read_only(true)
-            .open()
-            .unwrap();
-        let meta = sled::Config::default()
-            .path(meta_dir.as_ref().join(format!("db{}", idx)))
-            .read_only(true)
-            .open()
-            .unwrap();
-        Self { index, meta }
+    pub fn open<P: Into<PathBuf>, Q: AsRef<Path>>(index_dir: P, meta_dir: Q, idx: usize) -> Option<IndexShard> {
+        let index_dir = index_dir.into();
+        let meta = deserialize(&fs::read(meta_dir.as_ref().join(format!("db{}", idx))).ok()?).ok()?;
+        Some(Self { index_dir, meta })
     }
 
     pub fn open_all<P: AsRef<Path>, Q: AsRef<Path>>(index_dir: P, meta_dir: Q) -> Vec<IndexShard> {
         let mut idxs = Vec::new();
+        let index_dir = index_dir.as_ref();
+        let meta_dir = meta_dir.as_ref();
         for core_entry in fs::read_dir(&index_dir).unwrap() {
             for db_entry in fs::read_dir(core_entry.unwrap().path()).unwrap() {
                 let path = db_entry.unwrap().path();
@@ -266,22 +245,27 @@ impl IndexShard {
                 idxs.push(idx);
             }
         }
-        idxs.sort();
         let mut shards = Vec::new();
-        for idx in &idxs[0..(idxs.len() - 1)] {
-            shards.push(Self::open(&index_dir, &meta_dir, *idx));
+        for idx in idxs {
+            if let Some(shard) = Self::open(index_dir, meta_dir, idx) {
+                shards.push(shard);
+            }
         }
         shards
     }
 
     pub fn get_postings(&self, term: &str) -> Vec<Posting> {
-        match self.index.get(&serialize(term).unwrap()).unwrap() {
-            Some(bytes) => deserialize(&bytes).unwrap(),
+        match self.read_postings(term) {
+            Some(postings) => postings,
             None => Vec::new(),
         }
     }
 
-    pub fn get_meta(&self, url_id: u32) -> UrlMeta {
-        deserialize(&self.meta.get(&serialize(&url_id).unwrap()).unwrap().unwrap()).unwrap()
+    fn read_postings(&self, term: &str) -> Option<Vec<Posting>> {
+        deserialize(&fs::read(self.index_dir.join(term)).ok()?).ok()?
+    }
+
+    pub fn get_meta(&self, url_id: u32) -> Option<&UrlMeta> {
+        self.meta.get(&url_id)
     }
 }

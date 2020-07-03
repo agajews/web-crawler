@@ -370,7 +370,7 @@ struct CrawlerState {
     body_re: Regex,
     tag_text_re: Regex,
     term_re: Regex,
-    index: Mutex<DiskMultiMap<String, Posting>>,
+    index: Mutex<DiskMultiMap<Posting>>,
     meta: Mutex<DiskMap<u32, UrlMeta>>,
 }
 
