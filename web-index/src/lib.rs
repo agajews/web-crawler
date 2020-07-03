@@ -169,11 +169,11 @@ impl<K: Serialize + DeserializeOwned + Ord + Send + 'static, V: Serialize + Dese
     }
 
     fn dump_cache(cache: BTreeMap<K, V>, path: PathBuf) {
-        println!("writing to disk: {:?}", path);
+        // println!("writing to disk: {:?}", path);
         let mut file = fs::File::create(&path).unwrap();
         file.write_all(&serialize(&cache).unwrap()).unwrap();
         file.sync_all().unwrap();
-        println!("finished writing to {:?}", path);
+        // println!("finished writing to {:?}", path);
     }
 }
 
