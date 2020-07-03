@@ -1623,23 +1623,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sled"
-version = "0.32.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cdad3dc85d888056d3bd9954ffdf22d8a22701b6cd3aca4f6df4c436111898c4"
-dependencies = [
- "backtrace",
- "crc32fast",
- "crossbeam-epoch",
- "crossbeam-utils",
- "fs2",
- "fxhash",
- "libc",
- "log 0.4.8",
- "parking_lot",
-]
-
-[[package]]
 name = "smallvec"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2125,7 +2108,6 @@ dependencies = [
  "reqwest",
  "select",
  "serde",
- "sled 0.32.0",
  "tokio",
  "url",
  "web-index",
@@ -2138,7 +2120,7 @@ dependencies = [
  "bincode",
  "rand 0.7.3",
  "serde",
- "sled 0.31.0",
+ "sled",
  "tokio",
 ]
 

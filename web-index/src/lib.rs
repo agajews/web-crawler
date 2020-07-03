@@ -243,8 +243,16 @@ pub struct IndexShard {
 
 impl IndexShard {
     pub fn open<P: AsRef<Path>, Q: AsRef<Path>>(index_dir: P, meta_dir: Q, idx: usize) -> IndexShard {
-        let index = sled::open(index_dir.as_ref().join(format!("db{}", idx))).unwrap();
-        let meta = sled::open(meta_dir.as_ref().join(format!("db{}", idx))).unwrap();
+        let index = sled::Config::default()
+            .path(index_dir.as_ref().join(format!("db{}", idx)))
+            .read_only(true)
+            .open()
+            .unwrap();
+        let meta = sled::Config::default()
+            .path(meta_dir.as_ref().join(format!("db{}", idx)))
+            .read_only(true)
+            .open()
+            .unwrap();
         Self { index, meta }
     }
 
