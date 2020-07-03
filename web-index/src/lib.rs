@@ -227,11 +227,12 @@ pub struct IndexShard {
 }
 
 impl IndexShard {
-    pub fn open<P: Into<PathBuf>, Q: AsRef<Path>>(index_dir: P, meta_dir: Q, idx: usize) -> Option<IndexShard> {
-        let index_dir = index_dir.into();
-        println!("trying to read bytes from {:?}", meta_dir.as_ref());
-        let bytes = fs::read(meta_dir.as_ref().join(format!("db{}", idx))).unwrap();
-        println!("read bytes from {:?}", meta_dir.as_ref());
+    pub fn open<P: Into<PathBuf>, Q: AsRef<Path>>(index_dir: P, meta_dir: Q, core: &str, idx: usize) -> Option<IndexShard> {
+        let index_dir = index_dir.into().join(core).join(format!("db{}", idx));
+        let path = meta_dir.as_ref().join(core).join(format!("db{}", idx));
+        println!("trying to read bytes from {:?}", path);
+        let bytes = fs::read(&path).unwrap();
+        println!("read bytes from {:?}", path);
         let meta = deserialize(&bytes).unwrap();
         Some(Self { index_dir, meta })
     }
@@ -246,12 +247,13 @@ impl IndexShard {
                 let filename = path.file_name().unwrap().to_str().unwrap();
                 let idx = filename[2..].parse::<usize>().unwrap();
                 println!("found index {}", idx);
-                idxs.push(idx);
+                let parent = String::from(path.parent().unwrap().file_name().unwrap().to_str().unwrap());
+                idxs.push((parent, idx));
             }
         }
         let mut shards = Vec::new();
-        for idx in idxs {
-            if let Some(shard) = Self::open(index_dir, meta_dir, idx) {
+        for (core, idx) in idxs {
+            if let Some(shard) = Self::open(index_dir, meta_dir, &core, idx) {
                 shards.push(shard);
             }
         }
