@@ -97,24 +97,33 @@ impl<V: Serialize + DeserializeOwned + Send + 'static> DiskMultiMap<V> {
         }
     }
 
-    pub fn dump(&mut self, idx: usize) {
+    pub async fn dump(&mut self, idx: usize) {
         let mut cache = BTreeMap::new();
         std::mem::swap(&mut self.cache, &mut cache);
         let path = self.db_path(idx);
-        thread::spawn(move || Self::dump_cache(cache, path));
+        tokio::spawn(async move { Self::dump_cache(cache, path).await });
     }
 
     fn db_path(&self, idx: usize) -> PathBuf {
         self.dir.join(format!("db{}", idx))
     }
 
-    fn dump_cache(cache: BTreeMap<String, Vec<V>>, path: PathBuf) {
+    async fn dump_cache(cache: BTreeMap<String, Vec<V>>, path: PathBuf) {
         println!("writing to disk: {:?}", path);
         fs::create_dir_all(&path).unwrap();
+        let mut futures = Vec::new();
         for (key, vec) in cache {
-            let mut file = fs::File::create(path.join(key)).unwrap();
-            file.write_all(&serialize(&vec).unwrap()).unwrap();
-            file.sync_all().unwrap();
+            let path = path.clone();
+            let future = tokio::spawn(async move {
+                let mut file = tokio::fs::File::create(path.join(key)).await.unwrap();
+                let bytes = serialize(&vec).unwrap();
+                file.write_all(&bytes).await.unwrap();
+                file.sync_all().await.unwrap();
+            });
+            futures.push(future);
+        }
+        for future in futures {
+            future.await.unwrap();
         }
         println!("finished writing to {:?}", path);
     }
