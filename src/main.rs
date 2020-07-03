@@ -225,7 +225,7 @@ async fn index_document(url: &str, id: usize, document: &str, state: &CrawlerSta
     meta.insert(id as u32, UrlMeta { url: String::from(url), n_terms });
 
     if (id + 1) % INDEX_CAP == 0 {
-        index.dump(id);
+        index.dump(id).await;
         meta.dump(id);
     }
 
