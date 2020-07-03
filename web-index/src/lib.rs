@@ -231,9 +231,9 @@ impl IndexShard {
         let index_dir = index_dir.into().join(core).join(format!("db{}", idx));
         let path = meta_dir.as_ref().join(core).join(format!("db{}", idx));
         println!("trying to read bytes from {:?}", path);
-        let bytes = fs::read(&path).unwrap();
+        let bytes = fs::read(&path).ok()?;
         println!("read bytes from {:?}", path);
-        let meta = deserialize(&bytes).unwrap();
+        let meta = deserialize(&bytes).ok()?;
         Some(Self { index_dir, meta })
     }
 
