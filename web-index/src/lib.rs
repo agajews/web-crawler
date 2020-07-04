@@ -7,11 +7,12 @@ use std::thread;
 use rand;
 use rand::Rng;
 use std::collections::{VecDeque, BTreeMap};
-use tokio::fs::File;
 use tokio::prelude::*;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use std::io::prelude::*;
+use std::fs::File;
+use std::io::SeekFrom;
 
 // const DUMP_THREADS: usize = 50;
 
@@ -64,14 +65,14 @@ impl<T: Serialize + DeserializeOwned> DiskDeque<T> {
     }
 
     async fn load_swap(&self, idx: usize) -> VecDeque<T> {
-        let mut file = File::open(self.swap_path(idx)).await.unwrap();
+        let mut file = tokio::fs::File::open(self.swap_path(idx)).await.unwrap();
         let mut contents = vec![];
         file.read_to_end(&mut contents).await.unwrap();
         deserialize(&contents).unwrap()
     }
 
     async fn dump_swap(&self, idx: usize) {
-        let mut file = File::create(self.swap_path(idx)).await.unwrap();
+        let mut file = tokio::fs::File::create(self.swap_path(idx)).await.unwrap();
         file.write_all(&serialize(&self.back).unwrap()).await.unwrap();
         file.sync_all().await.unwrap();
     }
@@ -242,58 +243,53 @@ pub struct UrlMeta {
 }
 
 pub struct IndexShard {
-    index_dir: PathBuf,
+    index: File,
+    headers: BTreeMap<String, (usize, usize)>,
     meta: BTreeMap<u32, UrlMeta>,
 }
 
 impl IndexShard {
     pub fn open<P: Into<PathBuf>, Q: AsRef<Path>>(index_dir: P, meta_dir: Q, core: &str, idx: usize) -> Option<IndexShard> {
         let index_dir = index_dir.into().join(core).join(format!("db{}", idx));
-        let path = meta_dir.as_ref().join(core).join(format!("db{}", idx));
-        // println!("trying to read bytes from {:?}", path);
-        let bytes = fs::read(&path).ok()?;
-        // println!("read bytes from {:?}", path);
-        let meta = deserialize(&bytes).ok()?;
-        Some(Self { index_dir, meta })
+        let meta_path = meta_dir.as_ref().join(core).join(format!("db{}", idx));
+        let meta = deserialize(&fs::read(meta_path).ok()?).ok()?;
+        let headers = deserialize(&fs::read(index_dir.join("metadata")).ok()?).ok()?;
+        let index = File::open(index_dir.join("data")).ok()?;
+        Some(Self { index, headers, meta })
     }
 
-    pub fn open_all<P: AsRef<Path>, Q: AsRef<Path>>(index_dir: P, meta_dir: Q) -> Vec<IndexShard> {
+    pub fn find_idxs<P: AsRef<Path>>(index_dir: P) -> Vec<(String, usize)> {
         let mut idxs = Vec::new();
         let index_dir = index_dir.as_ref();
-        let meta_dir = meta_dir.as_ref();
         for core_entry in fs::read_dir(&index_dir).unwrap() {
             for db_entry in fs::read_dir(core_entry.unwrap().path()).unwrap() {
                 let path = db_entry.unwrap().path();
                 let filename = path.file_name().unwrap().to_str().unwrap();
                 let idx = filename[2..].parse::<usize>().unwrap();
-                // println!("found index {}", idx);
                 let parent = String::from(path.parent().unwrap().file_name().unwrap().to_str().unwrap());
                 idxs.push((parent, idx));
             }
         }
-        let mut shards = Vec::new();
-        for (core, idx) in idxs {
-            if let Some(shard) = Self::open(index_dir, meta_dir, &core, idx) {
-                shards.push(shard);
-            }
-        }
-        shards
+        idxs
     }
 
-    pub fn get_postings(&self, term: &str) -> Vec<Posting> {
+    pub fn get_postings(&mut self, term: &str) -> Vec<Posting> {
         match self.read_postings(term) {
             Some(postings) => postings,
             None => Vec::new(),
         }
     }
 
-    fn read_postings(&self, term: &str) -> Option<Vec<Posting>> {
-        let path = self.index_dir.join(term);
-        println!("looking for {:?}", path);
-        deserialize(&fs::read(path).ok()?).ok()?
+    fn read_postings(&mut self, term: &str) -> Option<Vec<Posting>> {
+        let (offset, len) = self.headers.get(term)?;
+        self.index.seek(SeekFrom::Start(*offset as u64)).ok()?;
+        let mut bytes = vec![0; *len];
+        self.index.read_exact(&mut bytes).unwrap();
+        let postings: Vec<Posting> = deserialize(&bytes).ok()?;
+        Some(postings)
     }
 
-    pub fn get_meta(&self, url_id: u32) -> Option<&UrlMeta> {
-        self.meta.get(&url_id)
+    pub fn get_meta(&self, id: u32) -> Option<&UrlMeta> {
+        self.meta.get(&id)
     }
 }
