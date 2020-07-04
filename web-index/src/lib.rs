@@ -13,7 +13,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use std::io::prelude::*;
 
-const DUMP_THREADS: usize = 50;
+// const DUMP_THREADS: usize = 50;
 
 pub struct DiskDeque<T> {
     front: VecDeque<T>,
@@ -113,29 +113,25 @@ impl<V: Serialize + DeserializeOwned + Send + 'static> DiskMultiMap<V> {
     async fn dump_cache(cache: BTreeMap<String, Vec<V>>, path: PathBuf) {
         println!("writing to disk: {:?}", path);
         fs::create_dir_all(&path).unwrap();
-        let cache = Arc::new(Mutex::new(cache.into_iter().collect::<Vec<_>>()));
-        let mut futures = Vec::new();
-        for _ in 0..DUMP_THREADS {
-            let cache = cache.clone();
-            let path = path.clone();
-            futures.push(tokio::spawn(async move {
-                loop {
-                    let (key, vec) = match cache.lock().await.pop() {
-                        Some(data) => data,
-                        None => break,
-                    };
-                    let mut file = tokio::fs::File::create(path.join(key)).await.unwrap();
-                    let bytes = serialize(&vec).unwrap();
-                    file.write_all(&bytes).await.unwrap();
-                    file.sync_all().await.unwrap();
-                }
-            }));
+        let mut data = Vec::new();
+        let mut metadata = BTreeMap::new();
+        let mut offset = 0;
+        for (key, vec) in cache {
+            let bytes = serialize(&vec).unwrap();
+            metadata.insert(key, (offset, bytes.len()));
+            data.extend_from_slice(&bytes);
+            offset += bytes.len();
         }
-        for future in futures {
-            future.await.unwrap();
-        }
+        sync_write(path.join("metadata"), &serialize(&metadata).unwrap()).await;
+        sync_write(path.join("data"), &data).await;
         println!("finished writing to {:?}", path);
     }
+}
+
+async fn sync_write<P: AsRef<Path>>(path: P, bytes: &[u8]) {
+    let mut file = tokio::fs::File::create(path).await.unwrap();
+    file.write_all(bytes).await.unwrap();
+    file.sync_all().await.unwrap();
 }
 
 pub struct DiskMap<K, V> {
