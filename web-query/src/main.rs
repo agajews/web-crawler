@@ -23,7 +23,12 @@ fn main() {
         let postings = shard.get_postings(query);
         let term_counts = &shard.term_counts;
         let mut matches = postings.into_iter()
-            .map(|posting| (posting.url_id, shard_id, posting.count as f32 / term_counts[&posting.url_id] as f32))
+            .map(|posting| {
+                let n_terms = term_counts[&posting.url_id] as f32;
+                let count = posting.count as f32;
+                let q = count / n_terms;
+                (posting, shard_id, q)
+            })
             .collect::<Vec<_>>();
         matches.sort_by(|(_, _, q_a), (_, _, q_b)| q_b.partial_cmp(q_a).unwrap());
         for post in matches.into_iter().take(10) {
@@ -33,9 +38,9 @@ fn main() {
     top_matches.sort_by(|(_, _, q_a), (_, _, q_b)| q_b.partial_cmp(q_a).unwrap());
     let matches = &top_matches[0..10];
 
-    for (id, shard_id, q) in matches {
+    for (posting, shard_id, q) in matches {
         let meta = shards[*shard_id].open_meta();
-        let url = &meta[id].url;
-        println!("{}: {}", url, q);
+        let url = &meta[&posting.url_id].url;
+        println!("{}: {} - {}", url, q, posting.count);
     }
 }
