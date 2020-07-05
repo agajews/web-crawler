@@ -246,6 +246,7 @@ pub struct IndexShard {
     index: File,
     headers: BTreeMap<String, (usize, usize)>,
     meta_path: PathBuf,
+    pub term_counts: BTreeMap<u32, u32>,
 }
 
 impl IndexShard {
@@ -254,7 +255,11 @@ impl IndexShard {
         let meta_path = meta_dir.into().join(core).join(format!("db{}", idx));
         let headers = deserialize(&fs::read(index_dir.join("metadata")).ok()?).ok()?;
         let index = File::open(index_dir.join("data")).ok()?;
-        Some(Self { index, headers, meta_path })
+        let meta: BTreeMap<u32, UrlMeta> = deserialize(&fs::read(&meta_path).ok()?).ok()?;
+        let term_counts = meta.into_iter()
+            .map(|(id, url_meta)| (id, url_meta.n_terms))
+            .collect::<BTreeMap<_, _>>();
+        Some(Self { index, headers, meta_path, term_counts })
     }
 
     pub fn find_idxs<P: AsRef<Path>>(index_dir: P) -> Vec<(String, usize)> {
@@ -288,8 +293,8 @@ impl IndexShard {
         Some(postings)
     }
 
-    pub fn open_meta(&self) -> Option<BTreeMap<u32, UrlMeta>> {
-        let meta = deserialize(&fs::read(&self.meta_path).ok()?).ok()?;
-        Some(meta)
+    pub fn open_meta(&self) -> BTreeMap<u32, UrlMeta> {
+        let meta = deserialize(&fs::read(&self.meta_path).unwrap()).unwrap();
+        meta
     }
 }
