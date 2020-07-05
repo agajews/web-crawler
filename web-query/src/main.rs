@@ -13,8 +13,9 @@ fn main() {
     let mut shards = Vec::new();
     for (core, idx) in idxs {
         println!("opening {}: {}", core, idx);
-        let shard = IndexShard::open(&index_dir, &meta_dir, &core, idx).unwrap();
-        shards.push(shard);
+        if let Some(shard) = IndexShard::open(&index_dir, &meta_dir, &core, idx) {
+            shards.push(shard);
+        }
     }
     println!("opened all shards!");
     let mut top_matches = Vec::new();
