@@ -11,5 +11,11 @@ fn main() {
     let (core, idx) = &idxs[0];
     let mut shard = IndexShard::open(&index_dir, &meta_dir, core, *idx).unwrap();
     let postings = shard.get_postings("robotics");
+    let meta = shard.open_meta().unwrap();
     println!("{:?}", postings);
+    let urls = postings.iter()
+        .map(|posting| posting.url_id)
+        .filter_map(|id| meta.get(&id))
+        .collect::<Vec<_>>();
+    println!("{:?}", urls);
 }

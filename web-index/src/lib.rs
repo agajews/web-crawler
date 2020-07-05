@@ -245,17 +245,16 @@ pub struct UrlMeta {
 pub struct IndexShard {
     index: File,
     headers: BTreeMap<String, (usize, usize)>,
-    meta: BTreeMap<u32, UrlMeta>,
+    meta_path: PathBuf,
 }
 
 impl IndexShard {
-    pub fn open<P: Into<PathBuf>, Q: AsRef<Path>>(index_dir: P, meta_dir: Q, core: &str, idx: usize) -> Option<IndexShard> {
+    pub fn open<P: Into<PathBuf>, Q: Into<PathBuf>>(index_dir: P, meta_dir: Q, core: &str, idx: usize) -> Option<IndexShard> {
         let index_dir = index_dir.into().join(core).join(format!("db{}", idx));
-        let meta_path = meta_dir.as_ref().join(core).join(format!("db{}", idx));
-        let meta = deserialize(&fs::read(meta_path).ok()?).ok()?;
+        let meta_path = meta_dir.into().join(core).join(format!("db{}", idx));
         let headers = deserialize(&fs::read(index_dir.join("metadata")).ok()?).ok()?;
         let index = File::open(index_dir.join("data")).ok()?;
-        Some(Self { index, headers, meta })
+        Some(Self { index, headers, meta_path })
     }
 
     pub fn find_idxs<P: AsRef<Path>>(index_dir: P) -> Vec<(String, usize)> {
@@ -289,7 +288,8 @@ impl IndexShard {
         Some(postings)
     }
 
-    pub fn get_meta(&self, id: u32) -> Option<&UrlMeta> {
-        self.meta.get(&id)
+    pub fn open_meta(&self) -> Option<BTreeMap<u32, UrlMeta>> {
+        let meta = deserialize(&fs::read(&self.meta_path).ok()?).ok()?;
+        Some(meta)
     }
 }
