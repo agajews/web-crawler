@@ -222,6 +222,7 @@ async fn index_document(url: &str, document: &str, state: &CrawlerState) -> Opti
 
     let mut url_count = state.url_count.lock().await;
     let id = *url_count;
+    *url_count += 1;
 
     let mut index = state.index.lock().await;
     let mut meta = state.meta.lock().await;
