@@ -331,6 +331,7 @@ async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>) {
             let mut core_url_count = state.url_count.lock().await;
             let url_id = *core_url_count;
             *core_url_count += 1;
+            println!("core url count: {}, url_id: {}", core_url_count, url_id);
             url_id
         };
         let url = match handler.pop().await {
