@@ -197,7 +197,7 @@ async fn add_links(source: &Url, document: &str, state: &CrawlerState, handler: 
     }
 }
 
-async fn index_document(url: &str, id: usize, document: &str, state: &CrawlerState) -> Option<()> {
+async fn index_document(url: &str, document: &str, state: &CrawlerState) -> Option<()> {
     // println!("indexing {}", url);
     // println!("doc: {}", document);
     let mut terms = BTreeMap::<String, u32>::new();
@@ -220,6 +220,9 @@ async fn index_document(url: &str, id: usize, document: &str, state: &CrawlerSta
 
     let n_terms: u32 = terms.iter().map(|(_, n)| n).sum();
 
+    let mut url_count = state.url_count.lock().await;
+    let id = *url_count;
+
     let mut index = state.index.lock().await;
     let mut meta = state.meta.lock().await;
     for term in terms.keys() {
@@ -232,10 +235,9 @@ async fn index_document(url: &str, id: usize, document: &str, state: &CrawlerSta
     });
 
     if id + 1 == 8 * (INDEX_CAP / 8) {
+        *url_count = 0;
         index.dump().await;
         meta.dump();
-        *state.url_count.lock().await = 0;
-        println!("url count: {}", state.url_count.lock().await);
     }
 
     Some(())
@@ -243,7 +245,6 @@ async fn index_document(url: &str, id: usize, document: &str, state: &CrawlerSta
 
 async fn crawl_url(
     url: &str,
-    id: usize,
     client: &Client,
     robots: &mut BTreeMap<String, Option<Vec<String>>>,
     state: &CrawlerState,
@@ -294,7 +295,7 @@ async fn crawl_url(
         add_links(&source, &document, state, handler).await;
     }
 
-    index_document(url, id, &document, state).await;
+    index_document(url, &document, state).await;
 
     Ok(())
 }
@@ -327,13 +328,6 @@ async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>) {
     let mut was_active = false;
     let url_offset = rand::thread_rng().gen::<usize>() % CLIENT_DROP;
     loop {
-        let url_id = {
-            let mut core_url_count = state.url_count.lock().await;
-            let url_id = *core_url_count;
-            *core_url_count += 1;
-            println!("core url count: {}, url_id: {}", core_url_count, url_id);
-            url_id
-        };
         let url = match handler.pop().await {
             Some(url) => {
                 if !was_active {
@@ -350,7 +344,7 @@ async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>) {
                 delay_for(Duration::from_secs(10)).await; continue;
             },
         };
-        if let Err(err) = crawl_url(&url, url_id, &client, &mut robots, &state, &handler).await {
+        if let Err(err) = crawl_url(&url, &client, &mut robots, &state, &handler).await {
             state.err_counter.fetch_add(1, Ordering::Relaxed);
             if state.coreid < 1 {
                 println!("error crawling {}: {:?}", url, err);
