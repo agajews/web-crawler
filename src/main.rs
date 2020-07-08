@@ -56,7 +56,7 @@ const ROOT_SET: [&str; 4] = [
 const BLOOM_BYTES: usize = 20_000_000_000;
 const EST_URLS: usize = 5_000_000_000;
 const SWAP_CAP: usize = 1_000;
-const INDEX_CAP: usize = 10_000;
+const INDEX_CAP: usize = 1_000;
 const CLIENT_DROP: usize = 100;
 
 lazy_static! {
@@ -235,6 +235,7 @@ async fn index_document(url: &str, id: usize, document: &str, state: &CrawlerSta
         index.dump().await;
         meta.dump();
         *state.url_count.lock().await = 0;
+        println!("url count: {}", state.url_count.lock().await);
     }
 
     Some(())
