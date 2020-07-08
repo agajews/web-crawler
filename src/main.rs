@@ -15,7 +15,7 @@ use regex::Regex;
 // use uuid::Uuid;
 use std::path::PathBuf;
 use core::sync::atomic::{AtomicUsize, Ordering};
-use web_index::{DiskMap, DiskMultiMap, TaskPool, TaskHandler, Posting, UrlMeta};
+use web_index::{DiskMap, DiskMultiMap, TaskPool, TaskHandler, UrlMeta};
 use std::time::{Instant, Duration};
 use cbloom;
 use fasthash::metro::hash64;
@@ -56,7 +56,7 @@ const ROOT_SET: [&str; 4] = [
 const BLOOM_BYTES: usize = 20_000_000_000;
 const EST_URLS: usize = 5_000_000_000;
 const SWAP_CAP: usize = 1_000;
-const INDEX_CAP: usize = 100_000;
+const INDEX_CAP: usize = 10_000;
 const CLIENT_DROP: usize = 100;
 
 lazy_static! {
@@ -222,14 +222,19 @@ async fn index_document(url: &str, id: usize, document: &str, state: &CrawlerSta
 
     let mut index = state.index.lock().await;
     let mut meta = state.meta.lock().await;
-    for (term, count) in terms {
-        index.add(term, Posting { url_id: id as u32, count });
+    for term in terms.keys() {
+        index.add(String::from(term), id);
     }
-    meta.insert(id as u32, UrlMeta { url: String::from(url), n_terms });
+    meta.insert(id as u32, UrlMeta {
+        url: String::from(url),
+        n_terms,
+        term_counts: terms
+    });
 
-    if (id + 1) % INDEX_CAP == 0 {
-        index.dump(id).await;
-        meta.dump(id);
+    if id + 1 == 8 * (INDEX_CAP / 8) {
+        index.dump().await;
+        meta.dump();
+        *state.url_count.lock().await = 0;
     }
 
     Some(())
@@ -323,8 +328,9 @@ async fn crawler(state: Arc<CrawlerState>, handler: TaskHandler<String>) {
     loop {
         let url_id = {
             let mut core_url_count = state.url_count.lock().await;
+            let url_id = *core_url_count;
             *core_url_count += 1;
-            *core_url_count
+            url_id
         };
         let url = match handler.pop().await {
             Some(url) => {
@@ -373,7 +379,7 @@ struct CrawlerState {
     body_re: Regex,
     tag_text_re: Regex,
     term_re: Regex,
-    index: Mutex<DiskMultiMap<Posting>>,
+    index: Mutex<DiskMultiMap>,
     meta: Mutex<DiskMap<u32, UrlMeta>>,
 }
 
@@ -401,7 +407,7 @@ fn crawler_core(
 
     let index_dir = index_dir.join(format!("core{}", coreid.id));
     let meta_dir = meta_dir.join(format!("core{}", coreid.id));
-    let index = Mutex::new(DiskMultiMap::new(index_dir));
+    let index = Mutex::new(DiskMultiMap::new(index_dir, INDEX_CAP / 8));
     let meta = Mutex::new(DiskMap::new(meta_dir));
     let url_count = Mutex::new(0);
 

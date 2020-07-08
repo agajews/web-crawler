@@ -78,32 +78,42 @@ impl<T: Serialize + DeserializeOwned> DiskDeque<T> {
     }
 }
 
-pub struct DiskMultiMap<V> {
-    cache: BTreeMap<String, Vec<V>>,
+pub struct DiskMultiMap {
+    cache: BTreeMap<String, Vec<u8>>,
     dir: PathBuf,
+    db_count: usize,
+    capacity: usize,  // in bytes, not in number of elements
 }
 
-impl<V: Serialize + DeserializeOwned + Send + 'static> DiskMultiMap<V> {
-    pub fn new<P: Into<PathBuf>>(dir: P) -> Self {
+impl DiskMultiMap {
+    pub fn new<P: Into<PathBuf>>(dir: P, capacity: usize) -> Self {
         let dir = dir.into();
         fs::create_dir_all(&dir).unwrap();
         DiskMultiMap {
             cache: BTreeMap::new(),
             dir: dir,
+            db_count: 0,
+            capacity: capacity,
         }
     }
 
-    pub fn add(&mut self, key: String, value: V) {
-        match self.cache.get_mut(&key) {
-            Some(vec) => vec.push(value),
-            None => { self.cache.insert(key, vec![value]); () },
-        }
+    pub fn add(&mut self, key: String, id: usize) {
+        let vec = match self.cache.get_mut(&key) {
+            Some(vec) => vec,
+            None => {
+                self.cache.insert(key.clone(), vec![0; self.capacity]);
+                self.cache.get_mut(&key).unwrap()
+            },
+        };
+        let byte_idx = id >> 3;
+        vec[byte_idx] |= 1 << (id % 8);
     }
 
-    pub async fn dump(&mut self, idx: usize) {
+    pub async fn dump(&mut self) {
         let mut cache = BTreeMap::new();
         std::mem::swap(&mut self.cache, &mut cache);
-        let path = self.db_path(idx);
+        let path = self.db_path(self.db_count);
+        self.db_count += 1;
         tokio::spawn(async move { Self::dump_cache(cache, path).await });
     }
 
@@ -111,7 +121,7 @@ impl<V: Serialize + DeserializeOwned + Send + 'static> DiskMultiMap<V> {
         self.dir.join(format!("db{}", idx))
     }
 
-    async fn dump_cache(cache: BTreeMap<String, Vec<V>>, path: PathBuf) {
+    async fn dump_cache(cache: BTreeMap<String, Vec<u8>>, path: PathBuf) {
         println!("writing to disk: {:?}", path);
         fs::create_dir_all(&path).unwrap();
         let mut data = Vec::new();
@@ -138,6 +148,7 @@ async fn sync_write<P: AsRef<Path>>(path: P, bytes: &[u8]) {
 pub struct DiskMap<K, V> {
     dir: PathBuf,
     cache: BTreeMap<K, V>,
+    db_count: usize,
 }
 
 impl<K: Serialize + DeserializeOwned + Ord + Send + 'static, V: Serialize + DeserializeOwned + Send + 'static> DiskMap<K, V> {
@@ -147,6 +158,7 @@ impl<K: Serialize + DeserializeOwned + Ord + Send + 'static, V: Serialize + Dese
         DiskMap {
             dir,
             cache: BTreeMap::new(),
+            db_count: 0,
         }
     }
 
@@ -154,10 +166,11 @@ impl<K: Serialize + DeserializeOwned + Ord + Send + 'static, V: Serialize + Dese
         self.cache.insert(key, value);
     }
 
-    pub fn dump(&mut self, idx: usize) {
+    pub fn dump(&mut self) {
         let mut cache = BTreeMap::new();
         std::mem::swap(&mut self.cache, &mut cache);
-        let path = self.db_path(idx);
+        let path = self.db_path(self.db_count);
+        self.db_count += 1;
         thread::spawn(move || Self::dump_cache(cache, path));
     }
 
@@ -240,6 +253,7 @@ pub struct Posting {
 pub struct UrlMeta {
     pub url: String,
     pub n_terms: u32,
+    pub term_counts: BTreeMap<String, u32>,
 }
 
 pub struct IndexShard {
