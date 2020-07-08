@@ -56,7 +56,7 @@ const ROOT_SET: [&str; 4] = [
 const BLOOM_BYTES: usize = 20_000_000_000;
 const EST_URLS: usize = 5_000_000_000;
 const SWAP_CAP: usize = 1_000;
-const INDEX_CAP: usize = 1_000;
+const INDEX_CAP: usize = 10_000;
 const CLIENT_DROP: usize = 100;
 
 lazy_static! {
