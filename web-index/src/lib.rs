@@ -256,6 +256,9 @@ pub struct UrlMeta {
     pub term_counts: BTreeMap<String, u32>,
 }
 
+// TODO: store headers as u32s
+// TODO: store meta as a vec instead of a btree
+// TODO: store postings as u64 vecs
 pub struct IndexShard {
     index: File,
     headers: BTreeMap<String, (usize, usize)>,
@@ -291,19 +294,12 @@ impl IndexShard {
         idxs
     }
 
-    pub fn get_postings(&mut self, term: &str) -> Vec<Posting> {
-        match self.read_postings(term) {
-            Some(postings) => postings,
-            None => Vec::new(),
-        }
-    }
-
-    fn read_postings(&mut self, term: &str) -> Option<Vec<Posting>> {
+    pub fn get_postings(&mut self, term: &str) -> Option<Vec<u8>> {
         let (offset, len) = self.headers.get(term)?;
         self.index.seek(SeekFrom::Start(*offset as u64)).ok()?;
         let mut bytes = vec![0; *len];
         self.index.read_exact(&mut bytes).unwrap();
-        let postings: Vec<Posting> = deserialize(&bytes).ok()?;
+        let postings: Vec<u8> = deserialize(&bytes).ok()?;
         Some(postings)
     }
 
