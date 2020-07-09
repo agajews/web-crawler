@@ -294,6 +294,10 @@ impl IndexShard {
         idxs
     }
 
+    pub fn num_terms(&self) -> usize {
+        self.headers.len()
+    }
+
     pub fn get_postings(&mut self, term: &str) -> Option<Vec<u8>> {
         let (offset, len) = self.headers.get(term)?;
         self.index.seek(SeekFrom::Start(*offset as u64)).ok()?;

@@ -197,6 +197,7 @@ async fn add_links(source: &Url, document: &str, state: &CrawlerState, handler: 
     }
 }
 
+// TODO: track <script> presence
 async fn index_document(url: &str, document: &str, state: &CrawlerState) -> Option<()> {
     // println!("indexing {}", url);
     // println!("doc: {}", document);

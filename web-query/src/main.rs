@@ -20,6 +20,7 @@ fn main() {
     // println!("opened all shards!");
     let (core, idx) = &idxs[0];
     let mut shard = IndexShard::open(&index_dir, &meta_dir, core, *idx).unwrap();
+    println!("num terms: {}", shard.num_terms());
     let postings = shard.get_postings(query).unwrap();
     let meta = shard.open_meta();
     for (k, bitset) in postings.iter().enumerate() {
