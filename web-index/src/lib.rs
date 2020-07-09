@@ -79,10 +79,10 @@ impl<T: Serialize + DeserializeOwned> DiskDeque<T> {
 }
 
 pub struct DiskMultiMap {
-    cache: BTreeMap<String, Vec<u8>>,
+    cache: BTreeMap<String, Vec<u64>>,
     dir: PathBuf,
     db_count: usize,
-    capacity: usize,  // in bytes, not in number of elements
+    capacity: usize,
 }
 
 impl DiskMultiMap {
@@ -93,7 +93,7 @@ impl DiskMultiMap {
             cache: BTreeMap::new(),
             dir: dir,
             db_count: 0,
-            capacity: capacity,
+            capacity: capacity.next_power_of_two() >> 6,
         }
     }
 
@@ -105,8 +105,8 @@ impl DiskMultiMap {
                 self.cache.get_mut(&key).unwrap()
             },
         };
-        let byte_idx = id >> 3;
-        vec[byte_idx] |= 1 << (id % 8);
+        let byte_idx = id >> 6;
+        vec[byte_idx] |= 1 << (id % 64);
     }
 
     pub async fn dump(&mut self) {
@@ -121,17 +121,17 @@ impl DiskMultiMap {
         self.dir.join(format!("db{}", idx))
     }
 
-    async fn dump_cache(cache: BTreeMap<String, Vec<u8>>, path: PathBuf) {
+    async fn dump_cache(cache: BTreeMap<String, Vec<u64>>, path: PathBuf) {
         println!("writing to disk: {:?}", path);
         fs::create_dir_all(&path).unwrap();
         let mut data = Vec::new();
-        let mut metadata = BTreeMap::new();
-        let mut offset = 0;
+        let mut metadata: BTreeMap<String, (u32, u32)> = BTreeMap::new();
+        let mut offset: u32 = 0;
         for (key, vec) in cache {
             let bytes = serialize(&vec).unwrap();
-            metadata.insert(key, (offset, bytes.len()));
+            metadata.insert(key, (offset, bytes.len() as u32));
             data.extend_from_slice(&bytes);
-            offset += bytes.len();
+            offset += bytes.len() as u32;
         }
         sync_write(path.join("metadata"), &serialize(&metadata).unwrap()).await;
         sync_write(path.join("data"), &data).await;
@@ -145,29 +145,31 @@ async fn sync_write<P: AsRef<Path>>(path: P, bytes: &[u8]) {
     file.sync_all().await.unwrap();
 }
 
-pub struct DiskMap<K, V> {
+pub struct DiskMap<V> {
     dir: PathBuf,
-    cache: BTreeMap<K, V>,
+    cache: Vec<V>,
     db_count: usize,
+    capacity: usize,
 }
 
-impl<K: Serialize + DeserializeOwned + Ord + Send + 'static, V: Serialize + DeserializeOwned + Send + 'static> DiskMap<K, V> {
-    pub fn new<P: Into<PathBuf>>(dir: P) -> Self {
+impl<V: Serialize + DeserializeOwned + Send + 'static> DiskMap<V> {
+    pub fn new<P: Into<PathBuf>>(dir: P, capacity: usize) -> Self {
         let dir = dir.into();
         fs::create_dir_all(&dir).unwrap();
         DiskMap {
             dir,
-            cache: BTreeMap::new(),
+            capacity,
+            cache: Vec::with_capacity(capacity),
             db_count: 0,
         }
     }
 
-    pub fn insert(&mut self, key: K, value: V) {
-        self.cache.insert(key, value);
+    pub fn push(&mut self, value: V) {
+        self.cache.push(value);
     }
 
     pub fn dump(&mut self) {
-        let mut cache = BTreeMap::new();
+        let mut cache = Vec::with_capacity(self.capacity);
         std::mem::swap(&mut self.cache, &mut cache);
         let path = self.db_path(self.db_count);
         self.db_count += 1;
@@ -178,7 +180,7 @@ impl<K: Serialize + DeserializeOwned + Ord + Send + 'static, V: Serialize + Dese
         self.dir.join(format!("db{}", idx))
     }
 
-    fn dump_cache(cache: BTreeMap<K, V>, path: PathBuf) {
+    fn dump_cache(cache: Vec<V>, path: PathBuf) {
         // println!("writing to disk: {:?}", path);
         let mut file = fs::File::create(&path).unwrap();
         file.write_all(&serialize(&cache).unwrap()).unwrap();
@@ -256,14 +258,11 @@ pub struct UrlMeta {
     pub term_counts: BTreeMap<String, u32>,
 }
 
-// TODO: store headers as u32s
-// TODO: store meta as a vec instead of a btree
-// TODO: store postings as u64 vecs
 pub struct IndexShard {
     index: File,
-    headers: BTreeMap<String, (usize, usize)>,
+    headers: BTreeMap<String, (u32, u32)>,
     meta_path: PathBuf,
-    pub term_counts: BTreeMap<u32, u32>,
+    pub term_counts: Vec<u32>,
 }
 
 impl IndexShard {
@@ -272,10 +271,10 @@ impl IndexShard {
         let meta_path = meta_dir.into().join(core).join(format!("db{}", idx));
         let headers = deserialize(&fs::read(index_dir.join("metadata")).ok()?).ok()?;
         let index = File::open(index_dir.join("data")).ok()?;
-        let meta: BTreeMap<u32, UrlMeta> = deserialize(&fs::read(&meta_path).ok()?).ok()?;
+        let meta: Vec<UrlMeta> = deserialize(&fs::read(&meta_path).ok()?).ok()?;
         let term_counts = meta.into_iter()
-            .map(|(id, url_meta)| (id, url_meta.n_terms))
-            .collect::<BTreeMap<_, _>>();
+            .map(|url_meta| url_meta.n_terms)
+            .collect::<Vec<_>>();
         Some(Self { index, headers, meta_path, term_counts })
     }
 
@@ -301,13 +300,13 @@ impl IndexShard {
     pub fn get_postings(&mut self, term: &str) -> Option<Vec<u8>> {
         let (offset, len) = self.headers.get(term)?;
         self.index.seek(SeekFrom::Start(*offset as u64)).ok()?;
-        let mut bytes = vec![0; *len];
+        let mut bytes = vec![0; *len as usize];
         self.index.read_exact(&mut bytes).unwrap();
         let postings: Vec<u8> = deserialize(&bytes).ok()?;
         Some(postings)
     }
 
-    pub fn open_meta(&self) -> BTreeMap<u32, UrlMeta> {
+    pub fn open_meta(&self) -> Vec<UrlMeta> {
         let meta = deserialize(&fs::read(&self.meta_path).unwrap()).unwrap();
         meta
     }

@@ -54,7 +54,7 @@ const ROOT_SET: [&str; 4] = [
 // PROD
 
 const BLOOM_BYTES: usize = 20_000_000_000;
-const EST_URLS: usize = 5_000_000_000;
+const EST_URLS: usize = 10_000_000_000;
 const SWAP_CAP: usize = 1_000;
 const INDEX_CAP: usize = 10_000;
 const CLIENT_DROP: usize = 100;
@@ -230,13 +230,13 @@ async fn index_document(url: &str, document: &str, state: &CrawlerState) -> Opti
     for term in terms.keys() {
         index.add(String::from(term), id);
     }
-    meta.insert(id as u32, UrlMeta {
+    meta.push(UrlMeta {
         url: String::from(url),
         n_terms,
         term_counts: terms
     });
 
-    if id + 1 == 8 * (INDEX_CAP / 8) {
+    if id + 1 == INDEX_CAP {
         *url_count = 0;
         index.dump().await;
         meta.dump();
@@ -378,7 +378,7 @@ struct CrawlerState {
     tag_text_re: Regex,
     term_re: Regex,
     index: Mutex<DiskMultiMap>,
-    meta: Mutex<DiskMap<u32, UrlMeta>>,
+    meta: Mutex<DiskMap<UrlMeta>>,
 }
 
 fn crawler_core(
@@ -405,8 +405,8 @@ fn crawler_core(
 
     let index_dir = index_dir.join(format!("core{}", coreid.id));
     let meta_dir = meta_dir.join(format!("core{}", coreid.id));
-    let index = Mutex::new(DiskMultiMap::new(index_dir, INDEX_CAP / 8));
-    let meta = Mutex::new(DiskMap::new(meta_dir));
+    let index = Mutex::new(DiskMultiMap::new(index_dir, INDEX_CAP));
+    let meta = Mutex::new(DiskMap::new(meta_dir, INDEX_CAP));
     let url_count = Mutex::new(0);
 
     let mut rt = runtime::Builder::new()
