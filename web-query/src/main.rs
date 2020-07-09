@@ -27,9 +27,9 @@ fn main() {
         let mut bitset = *bitset;
         while bitset != 0 {
           let t = bitset & bitset.wrapping_neg();
-          let r = bitset.trailing_zeros();
-          let url_id = (k as u32) * 8 + r;
-          let url_meta = &meta[&url_id];
+          let r = bitset.trailing_zeros() as usize;
+          let url_id = (k as usize) * 64 + r;
+          let url_meta = &meta[url_id];
           println!("got url {}: {}", url_meta.url, url_meta.term_counts[query]);
           bitset ^= t;
         }

@@ -297,12 +297,12 @@ impl IndexShard {
         self.headers.len()
     }
 
-    pub fn get_postings(&mut self, term: &str) -> Option<Vec<u8>> {
+    pub fn get_postings(&mut self, term: &str) -> Option<Vec<u64>> {
         let (offset, len) = self.headers.get(term)?;
         self.index.seek(SeekFrom::Start(*offset as u64)).ok()?;
         let mut bytes = vec![0; *len as usize];
         self.index.read_exact(&mut bytes).unwrap();
-        let postings: Vec<u8> = deserialize(&bytes).ok()?;
+        let postings: Vec<u64> = deserialize(&bytes).ok()?;
         Some(postings)
     }
 
