@@ -338,10 +338,15 @@ impl IndexShard {
     pub fn open<P: Into<PathBuf>, Q: Into<PathBuf>>(index_dir: P, meta_dir: Q, core: &str, idx: usize) -> Option<IndexShard> {
         let index_dir = index_dir.into().join(core).join(format!("db{}", idx));
         let meta_path = meta_dir.into().join(core).join(format!("db{}", idx));
+        println!("deserializing headers");
         let headers = deserialize(&fs::read(index_dir.join("metadata")).ok()?).ok()?;
+        println!("opening index");
         let index = File::open(index_dir.join("data")).ok()?;
+        println!("deserializing meta");
         let meta: Vec<UrlMeta> = deserialize(&fs::read(&meta_path).ok()?).ok()?;
+        println!("collecting term counts");
         let term_counts = meta.iter().map(|url_meta| url_meta.n_terms).collect::<Vec<_>>();
+        println!("done");
         Some(Self { index, headers, meta_path, term_counts })
     }
 
