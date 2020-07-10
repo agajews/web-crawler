@@ -234,6 +234,7 @@ async fn index_document(url: &str, document: &str, state: &CrawlerState) -> Opti
     }
     meta.push(UrlMeta {
         url: String::from(url),
+        n_terms: (n_terms as f32).log2() as u8,
     });
 
     if id + 1 == INDEX_CAP {

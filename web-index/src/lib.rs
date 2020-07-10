@@ -324,12 +324,14 @@ pub struct Posting {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct UrlMeta {
     pub url: String,
+    pub n_terms: u8,
 }
 
 pub struct IndexShard {
     index: File,
     headers: BTreeMap<String, (u32, u32)>,
     meta_path: PathBuf,
+    term_counts: Vec<u8>,
 }
 
 impl IndexShard {
@@ -338,8 +340,9 @@ impl IndexShard {
         let meta_path = meta_dir.into().join(core).join(format!("db{}", idx));
         let headers = deserialize(&fs::read(index_dir.join("metadata")).ok()?).ok()?;
         let index = File::open(index_dir.join("data")).ok()?;
-        let _meta: Vec<UrlMeta> = deserialize(&fs::read(&meta_path).ok()?).ok()?;
-        Some(Self { index, headers, meta_path })
+        let meta: Vec<UrlMeta> = deserialize(&fs::read(&meta_path).ok()?).ok()?;
+        let term_counts = meta.iter().map(|url_meta| url_meta.n_terms).collect::<Vec<_>>();
+        Some(Self { index, headers, meta_path, term_counts })
     }
 
     pub fn find_idxs<P: AsRef<Path>>(index_dir: P) -> Vec<(String, usize)> {
@@ -359,6 +362,10 @@ impl IndexShard {
 
     pub fn num_terms(&self) -> usize {
         self.headers.len()
+    }
+
+    pub fn term_counts(&self) -> &[u8] {
+        &self.term_counts
     }
 
     pub fn get_postings(&mut self, term: &str) -> Option<Vec<u8>> {
