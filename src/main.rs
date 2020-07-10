@@ -314,7 +314,7 @@ fn build_client(state: &CrawlerState) -> Client {
         .collect::<Vec<_>>();
     // println!("ips: {:?}", ips);
     let ip = ips[state.coreid % ips.len()].ip();
-    // println!("building client on ip {}", ip);
+    println!("building client on ip {}", ip);
     Client::builder()
         .user_agent(USER_AGENT)
         .danger_accept_invalid_certs(true)
