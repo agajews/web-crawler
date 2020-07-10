@@ -57,7 +57,7 @@ const ROOT_SET: [&str; 4] = [
 const BLOOM_BYTES: usize = 20_000_000_000;
 const EST_URLS: usize = 10_000_000_000;
 const SWAP_CAP: usize = 1_000;
-const INDEX_CAP: usize = 10_000;
+const INDEX_CAP: usize = 500_000;
 const CLIENT_DROP: usize = 100;
 
 lazy_static! {
@@ -314,7 +314,7 @@ fn build_client(state: &CrawlerState) -> Client {
         .collect::<Vec<_>>();
     // println!("ips: {:?}", ips);
     let ip = ips[state.coreid % ips.len()].ip();
-    println!("building client on ip {}", ip);
+    // println!("building client on ip {}", ip);
     Client::builder()
         .user_agent(USER_AGENT)
         .danger_accept_invalid_certs(true)
