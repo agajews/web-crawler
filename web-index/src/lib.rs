@@ -13,6 +13,76 @@ use tokio::sync::Mutex;
 use std::io::prelude::*;
 use std::fs::File;
 use std::io::SeekFrom;
+use std::convert::TryInto;
+
+fn rle_encode(vec: Vec<u8>) -> Vec<u8> {
+    let mut i = 0;
+    let mut encoded = Vec::new();
+    let mut non_run = Vec::new();
+    encoded.extend_from_slice(&(vec.len() as u32).to_be_bytes());
+    while i < vec.len() {
+        let start = i;
+        let val = vec[i];
+        while vec[i] == val && i - start < 128 {
+            i += 1;
+        }
+        let is_run = i - start > 3;
+        if is_run || non_run.len() == 128 {
+            encoded.push((128 + non_run.len()) as u8);
+            encoded.extend_from_slice(&non_run);
+            non_run.clear();
+        }
+        if is_run {
+            encoded.push((i - start) as u8);
+            encoded.push(val);
+        } else {
+            i = start;
+            non_run.push(val);
+        }
+    }
+    if non_run.len() > 0 {
+        encoded.push((128 + non_run.len()) as u8);
+        encoded.extend_from_slice(&non_run);
+    }
+    non_run
+}
+
+fn rle_decode(vec: Vec<u8>) -> Option<Vec<u8>> {
+    let len = u32::from_be_bytes((&vec[0..4]).clone().try_into().unwrap());
+    let mut decoded: Vec<u8> = vec![0; len as usize];
+    let mut i = 4;
+    let mut j = 0;
+    while i < vec.len() {
+        if vec[i] < 128 {
+            let run_len = vec[i] as usize;
+            i += 1;
+            let run_val = *vec.get(i)?;
+            if run_val != 0 {
+                for _ in 0..run_len {
+                    if j >= decoded.len() {
+                        return None;
+                    }
+                    decoded[j] = run_val;
+                    j += 1;
+                }
+            } else {
+                j += run_len;
+            }
+        } else {
+            let non_run_len = (vec[i] - 128) as usize;
+            i += 1;
+            for _ in 0..non_run_len {
+                if j >= decoded.len() {
+                    return None;
+                }
+                decoded[j] = *vec.get(i)?;
+                j += 1;
+                i += 1;
+            }
+        }
+    }
+    Some(decoded)
+}
 
 // const DUMP_THREADS: usize = 50;
 
@@ -79,7 +149,7 @@ impl<T: Serialize + DeserializeOwned> DiskDeque<T> {
 }
 
 pub struct DiskMultiMap {
-    cache: BTreeMap<String, Vec<u64>>,
+    cache: BTreeMap<String, Vec<u8>>,
     dir: PathBuf,
     db_count: usize,
     capacity: usize,
@@ -93,11 +163,11 @@ impl DiskMultiMap {
             cache: BTreeMap::new(),
             dir: dir,
             db_count: 0,
-            capacity: capacity.next_power_of_two() >> 6,
+            capacity: capacity,
         }
     }
 
-    pub fn add(&mut self, key: String, id: usize) {
+    pub fn add(&mut self, key: String, id: usize, factor: u8) {
         let vec = match self.cache.get_mut(&key) {
             Some(vec) => vec,
             None => {
@@ -105,8 +175,7 @@ impl DiskMultiMap {
                 self.cache.get_mut(&key).unwrap()
             },
         };
-        let byte_idx = id >> 6;
-        vec[byte_idx] |= 1 << (id % 64);
+        vec[id] = factor;
     }
 
     pub async fn dump(&mut self) {
@@ -121,14 +190,14 @@ impl DiskMultiMap {
         self.dir.join(format!("db{}", idx))
     }
 
-    async fn dump_cache(cache: BTreeMap<String, Vec<u64>>, path: PathBuf) {
+    async fn dump_cache(cache: BTreeMap<String, Vec<u8>>, path: PathBuf) {
         println!("writing to disk: {:?}", path);
         fs::create_dir_all(&path).unwrap();
         let mut data = Vec::new();
         let mut metadata: BTreeMap<String, (u32, u32)> = BTreeMap::new();
         let mut offset: u32 = 0;
         for (key, vec) in cache {
-            let bytes = serialize(&vec).unwrap();
+            let bytes = rle_encode(vec);
             metadata.insert(key, (offset, bytes.len() as u32));
             data.extend_from_slice(&bytes);
             offset += bytes.len() as u32;
@@ -254,15 +323,12 @@ pub struct Posting {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct UrlMeta {
     pub url: String,
-    pub n_terms: u32,
-    pub term_counts: BTreeMap<String, u32>,
 }
 
 pub struct IndexShard {
     index: File,
     headers: BTreeMap<String, (u32, u32)>,
     meta_path: PathBuf,
-    pub term_counts: Vec<u32>,
 }
 
 impl IndexShard {
@@ -271,11 +337,8 @@ impl IndexShard {
         let meta_path = meta_dir.into().join(core).join(format!("db{}", idx));
         let headers = deserialize(&fs::read(index_dir.join("metadata")).ok()?).ok()?;
         let index = File::open(index_dir.join("data")).ok()?;
-        let meta: Vec<UrlMeta> = deserialize(&fs::read(&meta_path).ok()?).ok()?;
-        let term_counts = meta.into_iter()
-            .map(|url_meta| url_meta.n_terms)
-            .collect::<Vec<_>>();
-        Some(Self { index, headers, meta_path, term_counts })
+        let _meta: Vec<UrlMeta> = deserialize(&fs::read(&meta_path).ok()?).ok()?;
+        Some(Self { index, headers, meta_path })
     }
 
     pub fn find_idxs<P: AsRef<Path>>(index_dir: P) -> Vec<(String, usize)> {
@@ -297,12 +360,12 @@ impl IndexShard {
         self.headers.len()
     }
 
-    pub fn get_postings(&mut self, term: &str) -> Option<Vec<u64>> {
+    pub fn get_postings(&mut self, term: &str) -> Option<Vec<u8>> {
         let (offset, len) = self.headers.get(term)?;
         self.index.seek(SeekFrom::Start(*offset as u64)).ok()?;
         let mut bytes = vec![0; *len as usize];
         self.index.read_exact(&mut bytes).unwrap();
-        let postings: Vec<u64> = deserialize(&bytes).ok()?;
+        let postings: Vec<u8> = rle_decode(bytes)?;
         Some(postings)
     }
 

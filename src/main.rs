@@ -227,13 +227,12 @@ async fn index_document(url: &str, document: &str, state: &CrawlerState) -> Opti
 
     let mut index = state.index.lock().await;
     let mut meta = state.meta.lock().await;
-    for term in terms.keys() {
-        index.add(String::from(term), id);
+    for (term, count) in terms {
+        let factor = std::cmp::min((count * 2550) / n_terms, 255) as u8;
+        index.add(String::from(term), id, factor);
     }
     meta.push(UrlMeta {
         url: String::from(url),
-        n_terms,
-        term_counts: terms
     });
 
     if id + 1 == INDEX_CAP {
