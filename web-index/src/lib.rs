@@ -23,11 +23,11 @@ fn rle_encode(vec: Vec<u8>) -> Vec<u8> {
     while i < vec.len() {
         let start = i;
         let val = vec[i];
-        while vec[i] == val && i - start < 128 {
+        while i < vec.len() && vec[i] == val && i - start < 127 {
             i += 1;
         }
         let is_run = i - start > 3;
-        if is_run || non_run.len() == 128 {
+        if non_run.len() == 127 || (is_run && non_run.len() > 0) {
             encoded.push((128 + non_run.len()) as u8);
             encoded.extend_from_slice(&non_run);
             non_run.clear();
@@ -36,7 +36,7 @@ fn rle_encode(vec: Vec<u8>) -> Vec<u8> {
             encoded.push((i - start) as u8);
             encoded.push(val);
         } else {
-            i = start;
+            i = start + 1;
             non_run.push(val);
         }
     }
@@ -44,7 +44,7 @@ fn rle_encode(vec: Vec<u8>) -> Vec<u8> {
         encoded.push((128 + non_run.len()) as u8);
         encoded.extend_from_slice(&non_run);
     }
-    non_run
+    encoded
 }
 
 fn rle_decode(vec: Vec<u8>) -> Option<Vec<u8>> {
@@ -68,6 +68,7 @@ fn rle_decode(vec: Vec<u8>) -> Option<Vec<u8>> {
             } else {
                 j += run_len;
             }
+            i += 1;
         } else {
             let non_run_len = (vec[i] - 128) as usize;
             i += 1;
