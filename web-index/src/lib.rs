@@ -14,7 +14,7 @@ use std::io::prelude::*;
 use std::fs::File;
 use std::io::SeekFrom;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 enum RunSegment {
     Run(u32, u8),
     NonRun(Vec<u8>),
@@ -27,7 +27,7 @@ pub struct RunEncoder {
     run: Vec<u8>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct RleEncoding {
     len: usize,
     encoded: Vec<RunSegment>,
@@ -66,7 +66,7 @@ impl RunEncoder {
                 if self.run.len() < 3 {
                     self.non_run.append(&mut self.run);
                 } else {
-                    self.flush();
+                    self.sync_segs();
                 }
                 self.run.push(byte);
             }
@@ -74,6 +74,13 @@ impl RunEncoder {
     }
 
     fn flush(&mut self) {
+        if self.run.len() < 3 {
+            self.non_run.append(&mut self.run);
+        }
+        self.sync_segs();
+    }
+
+    fn sync_segs(&mut self) {
         if self.non_run.len() > 0 {
             self.encoded.push(RunSegment::NonRun(self.non_run.clone()));
             self.non_run.clear();
@@ -91,8 +98,9 @@ impl RunEncoder {
 }
 
 impl RleEncoding {
-    pub fn decode(&self) -> Vec<u8> {
-        let mut decoded = vec![0; self.len];
+    pub fn decode(&self, size: usize) -> Vec<u8> {
+        assert!(size >= self.len);
+        let mut decoded = vec![0; size];
         let mut idx = 0;
         for seg in &self.encoded {
             match seg {

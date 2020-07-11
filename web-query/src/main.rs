@@ -24,7 +24,7 @@ impl PartialOrd for QueryMatch {
 
 
 fn main() {
-    let query = "admissions";
+    let query = "robotics";
 
     let top_dir: PathBuf = env::var("CRAWLER_DIR").unwrap().into();
     let index_dir = top_dir.join("index");
@@ -37,6 +37,9 @@ fn main() {
     println!("opened postings");
     let meta = shard.open_meta();
     println!("opened meta");
+    println!("postings: {:?}", postings);
+    let postings = postings.decode(100);
+    println!("decoded postings: {:?}", postings);
     let mut heap = BinaryHeap::new();
     for (id, val) in postings.iter().take(20).enumerate() {
         heap.push(QueryMatch { id: id, val: *val });
