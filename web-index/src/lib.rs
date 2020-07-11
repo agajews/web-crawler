@@ -15,74 +15,57 @@ use std::fs::File;
 use std::io::SeekFrom;
 use std::convert::TryInto;
 
-fn rle_encode(vec: Vec<u8>) -> Vec<u8> {
-    let mut i = 0;
-    let mut encoded = Vec::new();
-    let mut non_run = Vec::new();
-    encoded.extend_from_slice(&(vec.len() as u32).to_be_bytes());
-    while i < vec.len() {
-        let start = i;
-        let val = vec[i];
-        while i < vec.len() && vec[i] == val && i - start < 127 {
-            i += 1;
-        }
-        let is_run = i - start > 3;
-        if non_run.len() == 127 || (is_run && non_run.len() > 0) {
-            encoded.push((128 + non_run.len()) as u8);
-            encoded.extend_from_slice(&non_run);
-            non_run.clear();
-        }
-        if is_run {
-            encoded.push((i - start) as u8);
-            encoded.push(val);
-        } else {
-            i = start + 1;
-            non_run.push(val);
-        }
-    }
-    if non_run.len() > 0 {
-        encoded.push((128 + non_run.len()) as u8);
-        encoded.extend_from_slice(&non_run);
-    }
-    encoded
+#[derive(Serialize, Deserialize)]
+enum RunSegment {
+    Run(u32, u8),
+    NonRun(Vec<u8>),
 }
 
-fn rle_decode(vec: Vec<u8>) -> Option<Vec<u8>> {
-    let len = u32::from_be_bytes((&vec[0..4]).clone().try_into().unwrap());
-    let mut decoded: Vec<u8> = vec![0; len as usize];
-    let mut i = 4;
-    let mut j = 0;
-    while i < vec.len() {
-        if vec[i] < 128 {
-            let run_len = vec[i] as usize;
-            i += 1;
-            let run_val = *vec.get(i)?;
-            if run_val != 0 {
-                for _ in 0..run_len {
-                    if j >= decoded.len() {
-                        return None;
-                    }
-                    decoded[j] = run_val;
-                    j += 1;
+pub struct RunEncoder {
+    encoded: Vec<RunSegment>,
+    non_run: Vec<u8>,
+    run: Vec<u8>,
+}
+
+impl RunEncoder {
+    pub fn new() -> RunEncoder {
+        RunEncoder {
+            encoded: Vec::new(),
+            non_run: Vec::new(),
+            run: Vec::new(),
+        }
+    }
+
+    pub fn push(&mut self, byte: u8) {
+        match self.run.last() {
+            Some(prev) if prev == byte => self.run.push(byte),
+            None => self.run.push(byte),
+            _ => {
+                if self.run.len() < 3 {
+                    self.non_run.append(&mut self.run);
+                } else {
+                    self.flush();
                 }
-            } else {
-                j += run_len;
-            }
-            i += 1;
-        } else {
-            let non_run_len = (vec[i] - 128) as usize;
-            i += 1;
-            for _ in 0..non_run_len {
-                if j >= decoded.len() {
-                    return None;
-                }
-                decoded[j] = *vec.get(i)?;
-                j += 1;
-                i += 1;
+                self.run.push(byte);
             }
         }
     }
-    Some(decoded)
+
+    fn flush(&mut self) {
+        if self.non_run.len() > 0 {
+            self.encoded.push(RunSegment::NonRun(self.non_run.clone()));
+            self.non_run.clear();
+        }
+        if self.run.len() > 0 {
+            self.encoded.push(RunSegment::Run(self.run.len(), self.run[0]));
+            self.run.clear();
+        }
+    }
+
+    pub fn encode(&mut self) -> Vec<RunSegment> {
+        self.flush();
+        self.encoded
+    }
 }
 
 // const DUMP_THREADS: usize = 50;
@@ -150,7 +133,7 @@ impl<T: Serialize + DeserializeOwned> DiskDeque<T> {
 }
 
 pub struct DiskMultiMap {
-    cache: BTreeMap<String, Vec<u8>>,
+    cache: BTreeMap<String, RunEncoder>,
     dir: PathBuf,
     db_count: usize,
     capacity: usize,
