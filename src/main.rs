@@ -57,7 +57,7 @@ const ROOT_SET: [&str; 4] = [
 const BLOOM_BYTES: usize = 20_000_000_000;
 const EST_URLS: usize = 10_000_000_000;
 const SWAP_CAP: usize = 1_000;
-const INDEX_CAP: usize = 500_000;
+const INDEX_CAP: usize = 100_000;
 const CLIENT_DROP: usize = 100;
 
 lazy_static! {
@@ -199,6 +199,7 @@ async fn add_links(source: &Url, document: &str, state: &CrawlerState, handler: 
 }
 
 // TODO: track <script> presence
+// TODO: try small hashmap for performance
 async fn index_document(url: &str, document: &str, state: &CrawlerState) -> Option<()> {
     // println!("indexing {}", url);
     // println!("doc: {}", document);
