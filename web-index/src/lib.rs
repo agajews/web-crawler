@@ -13,7 +13,6 @@ use tokio::sync::Mutex;
 use std::io::prelude::*;
 use std::fs::File;
 use std::io::SeekFrom;
-use std::convert::TryInto;
 
 #[derive(Serialize, Deserialize)]
 enum RunSegment {
@@ -22,9 +21,16 @@ enum RunSegment {
 }
 
 pub struct RunEncoder {
+    len: usize,
     encoded: Vec<RunSegment>,
     non_run: Vec<u8>,
     run: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct RleEncoding {
+    len: usize,
+    encoded: Vec<RunSegment>,
 }
 
 impl RunEncoder {
@@ -33,12 +39,28 @@ impl RunEncoder {
             encoded: Vec::new(),
             non_run: Vec::new(),
             run: Vec::new(),
+            len: 0,
         }
     }
 
-    pub fn push(&mut self, byte: u8) {
+    pub fn add(&mut self, idx: usize, byte: u8) {
+        assert!(idx >= self.len);
+        if idx - self.len < 3 {
+            for _ in 0..(idx - self.len) {
+                self.push(0);
+            }
+            self.push(byte);
+        } else {
+            self.flush();
+            self.encoded.push(RunSegment::Run((idx - self.len) as u32, 0));
+            self.run.push(byte);
+        }
+        self.len = idx + 1;
+    }
+
+    fn push(&mut self, byte: u8) {
         match self.run.last() {
-            Some(prev) if prev == byte => self.run.push(byte),
+            Some(prev) if *prev == byte => self.run.push(byte),
             None => self.run.push(byte),
             _ => {
                 if self.run.len() < 3 {
@@ -57,14 +79,42 @@ impl RunEncoder {
             self.non_run.clear();
         }
         if self.run.len() > 0 {
-            self.encoded.push(RunSegment::Run(self.run.len(), self.run[0]));
+            self.encoded.push(RunSegment::Run(self.run.len() as u32, self.run[0]));
             self.run.clear();
         }
     }
 
-    pub fn encode(&mut self) -> Vec<RunSegment> {
+    pub fn encode(mut self) -> RleEncoding {
         self.flush();
-        self.encoded
+        RleEncoding { encoded: self.encoded, len: self.len }
+    }
+}
+
+impl RleEncoding {
+    pub fn decode(&self) -> Vec<u8> {
+        let mut decoded = vec![0; self.len];
+        let mut idx = 0;
+        for seg in &self.encoded {
+            match seg {
+                RunSegment::NonRun(vec) => {
+                    for j in 0..vec.len() {
+                        decoded[idx] = vec[j];
+                        idx += 1;
+                    }
+                },
+                RunSegment::Run(len, val) => {
+                    if *val == 0 {
+                        idx += *len as usize;
+                    } else {
+                        for _ in 0..(*len) {
+                            decoded[idx] = *val;
+                            idx += 1;
+                        }
+                    }
+                }
+            }
+        }
+        decoded
     }
 }
 
@@ -136,30 +186,28 @@ pub struct DiskMultiMap {
     cache: BTreeMap<String, RunEncoder>,
     dir: PathBuf,
     db_count: usize,
-    capacity: usize,
 }
 
 impl DiskMultiMap {
-    pub fn new<P: Into<PathBuf>>(dir: P, capacity: usize) -> Self {
+    pub fn new<P: Into<PathBuf>>(dir: P) -> Self {
         let dir = dir.into();
         fs::create_dir_all(&dir).unwrap();
         DiskMultiMap {
             cache: BTreeMap::new(),
             dir: dir,
             db_count: 0,
-            capacity: capacity,
         }
     }
 
     pub fn add(&mut self, key: String, id: usize, factor: u8) {
-        let vec = match self.cache.get_mut(&key) {
-            Some(vec) => vec,
+        let encoder = match self.cache.get_mut(&key) {
+            Some(encoder) => encoder,
             None => {
-                self.cache.insert(key.clone(), vec![0; self.capacity]);
+                self.cache.insert(key.clone(), RunEncoder::new());
                 self.cache.get_mut(&key).unwrap()
             },
         };
-        vec[id] = factor;
+        encoder.add(id, factor);
     }
 
     pub async fn dump(&mut self) {
@@ -174,14 +222,14 @@ impl DiskMultiMap {
         self.dir.join(format!("db{}", idx))
     }
 
-    async fn dump_cache(cache: BTreeMap<String, Vec<u8>>, path: PathBuf) {
+    async fn dump_cache(cache: BTreeMap<String, RunEncoder>, path: PathBuf) {
         println!("writing to disk: {:?}", path);
         fs::create_dir_all(&path).unwrap();
         let mut data = Vec::new();
         let mut metadata: BTreeMap<String, (u32, u32)> = BTreeMap::new();
         let mut offset: u32 = 0;
-        for (key, vec) in cache {
-            let bytes = rle_encode(vec);
+        for (key, encoder) in cache {
+            let bytes = serialize(&encoder.encode()).unwrap();
             metadata.insert(key, (offset, bytes.len() as u32));
             data.extend_from_slice(&bytes);
             offset += bytes.len() as u32;
@@ -356,12 +404,12 @@ impl IndexShard {
         &self.term_counts
     }
 
-    pub fn get_postings(&mut self, term: &str) -> Option<Vec<u8>> {
+    pub fn get_postings(&mut self, term: &str) -> Option<RleEncoding> {
         let (offset, len) = self.headers.get(term)?;
         self.index.seek(SeekFrom::Start(*offset as u64)).ok()?;
         let mut bytes = vec![0; *len as usize];
         self.index.read_exact(&mut bytes).unwrap();
-        let postings: Vec<u8> = rle_decode(bytes)?;
+        let postings: RleEncoding = deserialize(&bytes).ok()?;
         Some(postings)
     }
 

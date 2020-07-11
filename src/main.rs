@@ -408,7 +408,7 @@ fn crawler_core(
 
     let index_dir = index_dir.join(format!("core{}", coreid.id));
     let meta_dir = meta_dir.join(format!("core{}", coreid.id));
-    let index = Mutex::new(DiskMultiMap::new(index_dir, INDEX_CAP));
+    let index = Mutex::new(DiskMultiMap::new(index_dir));
     let meta = Mutex::new(DiskMap::new(meta_dir, INDEX_CAP));
     let url_count = Mutex::new(0);
 
