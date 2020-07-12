@@ -6,6 +6,7 @@ use std::collections::BinaryHeap;
 #[derive(Eq, PartialEq)]
 struct QueryMatch {
     id: usize,
+    shard_id: usize,
     val: u8,
 }
 
@@ -30,28 +31,35 @@ fn main() {
     let index_dir = top_dir.join("index");
     let meta_dir = top_dir.join("meta");
     let idxs = IndexShard::find_idxs(&index_dir);
-    let (core, idx) = &idxs[0];
-    let mut shard = IndexShard::open(&index_dir, &meta_dir, core, *idx).unwrap();
-    println!("num terms: {}", shard.num_terms());
-    let postings = shard.get_postings(query).unwrap();
-    println!("opened postings");
-    let meta = shard.open_meta();
-    println!("opened meta");
-    // println!("postings: {:?}", postings);
-    let postings = postings.decode(100000);
-    // println!("decoded postings: {:?}", postings);
-    let mut heap = BinaryHeap::new();
-    for (id, val) in postings.iter().take(20).enumerate() {
-        heap.push(QueryMatch { id: id, val: *val });
+    let mut shards = Vec::new();
+    for (core, idx) in idxs {
+        println!("opening shard {}:{}", core, idx);
+        if let Some(shard) = IndexShard::open(&index_dir, &meta_dir, &core, idx) {
+            shards.push(shard);
+        }
     }
-    for (id, val) in postings.iter().enumerate().skip(20) {
-        if *val > heap.peek().unwrap().val {
-            heap.pop();
-            heap.push(QueryMatch { id: id, val: *val });
+    println!("finished opening {} shards", shards.len());
+
+    let mut heap = BinaryHeap::new();
+    for i in 0..20 {
+        heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
+    }
+    for (shard_id, shard) in shards.iter_mut().enumerate() {
+        if let Some(postings) = shard.get_postings(query) {
+            println!("searching shard {}", shard_id);
+            let postings = postings.decode(100000);
+            for (id, val) in postings.into_iter().enumerate() {
+                if val > heap.peek().unwrap().val {
+                    heap.pop();
+                    heap.push(QueryMatch { id, shard_id, val });
+                }
+            }
         }
     }
     let results = heap.into_vec();
     for result in results {
+        let shard = &shards[result.shard_id];
+        let meta = shard.open_meta();
         println!("got url {}: {}, {}", meta[result.id].url, result.val, shard.term_counts()[result.id]);
     }
 }
