@@ -2,6 +2,7 @@ use web_index::IndexShard;
 use std::path::PathBuf;
 use std::env;
 use std::collections::BinaryHeap;
+use std::time::Instant;
 
 #[derive(Eq, PartialEq)]
 struct QueryMatch {
@@ -44,6 +45,7 @@ fn main() {
     for i in 0..20 {
         heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
     }
+    let start = Instant::now();
     for (shard_id, shard) in shards.iter_mut().enumerate() {
         if let Some(postings) = shard.get_postings(query) {
             let postings = postings.decode(100000);
@@ -55,6 +57,7 @@ fn main() {
             }
         }
     }
+    println!("time to search: {:?}", start.elapsed());
     let results = heap.into_vec();
     for result in results {
         let shard = &shards[result.shard_id];
