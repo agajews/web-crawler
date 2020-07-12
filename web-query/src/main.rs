@@ -37,9 +37,9 @@ fn main() {
     println!("opened postings");
     let meta = shard.open_meta();
     println!("opened meta");
-    println!("postings: {:?}", postings);
+    // println!("postings: {:?}", postings);
     let postings = postings.decode(100000);
-    println!("decoded postings: {:?}", postings);
+    // println!("decoded postings: {:?}", postings);
     let mut heap = BinaryHeap::new();
     for (id, val) in postings.iter().take(20).enumerate() {
         heap.push(QueryMatch { id: id, val: *val });
