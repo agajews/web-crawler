@@ -46,7 +46,6 @@ fn main() {
     }
     for (shard_id, shard) in shards.iter_mut().enumerate() {
         if let Some(postings) = shard.get_postings(query) {
-            println!("searching shard {}", shard_id);
             let postings = postings.decode(100000);
             for (id, val) in postings.into_iter().enumerate() {
                 if val > heap.peek().unwrap().val {
