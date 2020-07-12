@@ -5,7 +5,7 @@ use std::collections::BinaryHeap;
 use std::time::Instant;
 use std::sync::{Arc, Mutex};
 
-const N_THREADS: usize = 4;
+const N_THREADS: usize = 1;
 
 #[derive(Eq, PartialEq)]
 struct QueryMatch {
