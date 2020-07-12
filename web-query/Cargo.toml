@@ -8,3 +8,4 @@ edition = "2018"
 
 [dependencies]
 web-index = { path = "../web-index" }
+tokio = { version = "0.2", features = ["macros", "rt-core", "time", "io-driver", "fs"] }

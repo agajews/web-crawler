@@ -11,7 +11,6 @@ use tokio::prelude::*;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use std::io::prelude::*;
-use std::fs::File;
 use std::io::SeekFrom;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -367,25 +366,25 @@ pub struct UrlMeta {
 }
 
 pub struct IndexShard {
-    index: File,
+    index: tokio::fs::File,
     headers: BTreeMap<String, (u32, u32)>,
     meta_path: PathBuf,
     term_counts: Vec<u8>,
 }
 
 impl IndexShard {
-    pub fn open<P: Into<PathBuf>, Q: Into<PathBuf>>(index_dir: P, meta_dir: Q, core: &str, idx: usize) -> Option<IndexShard> {
+    pub async fn open<P: Into<PathBuf>, Q: Into<PathBuf>>(index_dir: P, meta_dir: Q, core: &str, idx: usize) -> Option<IndexShard> {
         let index_dir = index_dir.into().join(core).join(format!("db{}", idx));
         let meta_path = meta_dir.into().join(core).join(format!("db{}", idx));
         // println!("deserializing headers");
-        let headers = deserialize(&fs::read(index_dir.join("metadata")).ok()?).ok()?;
+        let headers = deserialize(&tokio::fs::read(index_dir.join("metadata")).await.ok()?).ok()?;
         // println!("opening index");
-        let index = File::open(index_dir.join("data")).ok()?;
+        let index = tokio::fs::File::open(index_dir.join("data")).await.ok()?;
         // println!("deserializing meta");
-        // let meta: Vec<UrlMeta> = deserialize(&fs::read(&meta_path).ok()?).ok()?;
+        let meta: Vec<UrlMeta> = deserialize(&tokio::fs::read(&meta_path).await.ok()?).ok()?;
         // println!("collecting term counts");
-        // let term_counts = meta.iter().map(|url_meta| url_meta.n_terms).collect::<Vec<_>>();
-        let term_counts = Vec::new();
+        let term_counts = meta.iter().map(|url_meta| url_meta.n_terms).collect::<Vec<_>>();
+        // let term_counts = Vec::new();
         // println!("done");
         Some(Self { index, headers, meta_path, term_counts })
     }
@@ -413,17 +412,16 @@ impl IndexShard {
         &self.term_counts
     }
 
-    pub fn get_postings(&mut self, term: &str) -> Option<RleEncoding> {
+    pub async fn get_postings(&mut self, term: &str) -> Option<RleEncoding> {
         let (offset, len) = self.headers.get(term)?;
-        self.index.seek(SeekFrom::Start(*offset as u64)).ok()?;
+        self.index.seek(SeekFrom::Start(*offset as u64)).await.ok()?;
         let mut bytes = vec![0; *len as usize];
-        self.index.read_exact(&mut bytes).unwrap();
+        self.index.read_exact(&mut bytes).await.unwrap();
         let postings: RleEncoding = deserialize(&bytes).ok()?;
         Some(postings)
     }
 
-    pub fn open_meta(&self) -> Vec<UrlMeta> {
-        let meta = deserialize(&fs::read(&self.meta_path).unwrap()).unwrap();
-        meta
+    pub async fn open_meta(&self) -> Vec<UrlMeta> {
+        deserialize(&tokio::fs::read(&self.meta_path).await.unwrap()).unwrap()
     }
 }
