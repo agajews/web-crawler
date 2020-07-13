@@ -70,21 +70,24 @@ fn main() {
     }
 
     let start = Instant::now();
-    for (shard_id, shard) in shards.iter_mut().enumerate() {
-        let postings = match shard.get_postings(query) {
-            Some(postings) => postings,
-            None => continue,
-        };
-        let postings = postings.decode(100000);
-        for (id, val) in postings.into_iter().enumerate() {
-            if val > heap.peek().unwrap().val {
-                heap.pop();
-                heap.push(QueryMatch { id, shard_id, val });
+    for i in 0..100 {
+        println!("searching iter {}, time {:?}", i, start.elapsed());
+        for (shard_id, shard) in shards.iter_mut().enumerate() {
+            let postings = match shard.get_postings(query) {
+                Some(postings) => postings,
+                None => continue,
+            };
+            let postings = postings.decode(100000);
+            for (id, val) in postings.into_iter().enumerate() {
+                if val > heap.peek().unwrap().val {
+                    heap.pop();
+                    heap.push(QueryMatch { id, shard_id, val });
+                }
             }
         }
     }
 
-    println!("time to search: {:?}", start.elapsed());
+    println!("time to search: {:?}", start.elapsed() / 100);
 
     let results = heap.into_vec();
     for result in results {
