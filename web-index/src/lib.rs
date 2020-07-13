@@ -100,12 +100,12 @@ impl RunEncoder {
 impl RleEncoding {
     pub fn serialize(&self) -> Vec<u8> {
         let mut serialized = Vec::new();
-        serialized.extend_from_slice(&self.len.to_be_bytes());
-        serialized.extend_from_slice(&self.encoded.len().to_be_bytes());
+        serialized.extend_from_slice(&(self.len as u32).to_be_bytes());
+        serialized.extend_from_slice(&(self.encoded.len() as u32).to_be_bytes());
         for seg in &self.encoded {
             match seg {
                 RunSegment::NonRun(bytes) => {
-                    serialized.extend_from_slice(&bytes.len().to_be_bytes());
+                    serialized.extend_from_slice(&(bytes.len() as u32).to_be_bytes());
                     serialized.extend_from_slice(&bytes);
                 },
                 RunSegment::Run(len, val) => {
