@@ -54,6 +54,8 @@ fn main() {
     let post_dir: PathBuf = env::var("POST_DIR").unwrap().into();
     let bincode_dir = post_dir.join("bincode");
     let custom_dir = post_dir.join("custom");
+    fs::create_dir_all(&bincode_dir).unwrap();
+    fs::create_dir_all(&custom_dir).unwrap();
 
     println!("trying to read from cache...");
     let headers = match fs::read(&cache_path) {
