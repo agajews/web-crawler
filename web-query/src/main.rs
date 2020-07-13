@@ -52,10 +52,12 @@ fn main() {
 
     let cache_path: PathBuf = env::var("CACHE_PATH").unwrap().into();
 
+    println!("trying to read from cache...");
     let headers = match fs::read(&cache_path) {
         Ok(bytes) => deserialize(&bytes).unwrap(),
         Err(_) => fill_cache(&index_dir, &meta_dir, &cache_path),
     };
+    println!("finished reading and deserializing");
 
     let mut shards = headers.into_iter()
         .map(|header| IndexShard::from_header(header, &index_dir, &meta_dir))
