@@ -12,6 +12,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use std::io::prelude::*;
 use std::io::SeekFrom;
+use std::convert::TryInto;
 
 #[derive(Serialize, Deserialize, Debug)]
 enum RunSegment {
@@ -97,6 +98,44 @@ impl RunEncoder {
 }
 
 impl RleEncoding {
+    pub fn serialize(&self) -> Vec<u8> {
+        let mut serialized = Vec::new();
+        serialized.extend_from_slice(&self.len.to_be_bytes());
+        serialized.extend_from_slice(&self.encoded.len().to_be_bytes());
+        for seg in &self.encoded {
+            match seg {
+                RunSegment::NonRun(bytes) => {
+                    serialized.extend_from_slice(&bytes.len().to_be_bytes());
+                    serialized.extend_from_slice(&bytes);
+                },
+                RunSegment::Run(len, val) => {
+                    serialized.extend_from_slice(&(len + 2^31).to_be_bytes());
+                    serialized.extend_from_slice(&val.to_be_bytes());
+                }
+            }
+        }
+        serialized
+    }
+
+    pub fn deserialize(serialized: Vec<u8>) -> Option<RleEncoding> {
+        let len = u32::from_be_bytes(serialized[0..4].try_into().ok()?) as usize;
+        let n_segs = u32::from_be_bytes(serialized[4..8].try_into().ok()?);
+        let mut encoded = Vec::with_capacity(n_segs as usize);
+        let mut i = 8;
+        for _ in 0..n_segs {
+            let seg_len = u32::from_be_bytes(serialized[i..(i + 4)].try_into().ok()?);
+            i += 4;
+            if seg_len >= 2^31 {
+                encoded.push(RunSegment::Run(seg_len - 2^31, *serialized.get(i)?));
+                i += 1;
+            } else {
+                encoded.push(RunSegment::NonRun(serialized[i..(i + seg_len as usize)].to_vec()));
+                i += seg_len as usize;
+            }
+        }
+        Some(RleEncoding { len, encoded })
+    }
+
     pub fn decode(&self, size: usize) -> Vec<u8> {
         assert!(size >= self.len);
         let mut decoded = vec![0; size];

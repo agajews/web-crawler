@@ -1,7 +1,7 @@
-use web_index::{IndexShard, IndexHeader};
+use web_index::{IndexShard, IndexHeader, RleEncoding};
 use std::path::{Path, PathBuf};
 use std::env;
-use std::collections::BinaryHeap;
+// use std::collections::BinaryHeap;
 use std::time::Instant;
 use std::fs;
 use bincode::{deserialize, serialize};
@@ -51,6 +51,9 @@ fn main() {
     let meta_dir = top_dir.join("meta");
 
     let cache_path: PathBuf = env::var("CACHE_PATH").unwrap().into();
+    let post_dir: PathBuf = env::var("POST_DIR").unwrap().into();
+    let bincode_dir = post_dir.join("bincode");
+    let custom_dir = post_dir.join("custom");
 
     println!("trying to read from cache...");
     let headers = match fs::read(&cache_path) {
@@ -64,35 +67,68 @@ fn main() {
         .collect::<Vec<_>>();
     println!("finished opening {} shards", shards.len());
 
-    let mut heap = BinaryHeap::new();
-    for i in 0..20 {
-        heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
+    for (shard_id, shard) in shards.iter_mut().enumerate() {
+        let postings = match shard.get_postings(query) {
+            Some(postings) => postings,
+            None => continue,
+        };
+        fs::write(bincode_dir.join(format!("{}", shard_id)), serialize(&postings).unwrap()).unwrap();
+        fs::write(custom_dir.join(format!("{}", shard_id)), postings.serialize()).unwrap();
     }
 
     let start = Instant::now();
     for i in 0..100 {
-        println!("searching iter {}, time {:?}", i, start.elapsed());
-        for (shard_id, shard) in shards.iter_mut().enumerate() {
-            let postings = match shard.get_postings(query) {
-                Some(postings) => postings,
-                None => continue,
-            };
-            let postings = postings.decode(100000);
-            for (id, val) in postings.into_iter().enumerate() {
-                if val > heap.peek().unwrap().val {
-                    heap.pop();
-                    heap.push(QueryMatch { id, shard_id, val });
-                }
-            }
+        println!("benchmarking iter {}, time {:?}", i, start.elapsed());
+        for entry in fs::read_dir(&bincode_dir).unwrap() {
+            let path = entry.unwrap().path();
+            let bytes = fs::read(path).unwrap();
+            let _data: RleEncoding = deserialize(&bytes).unwrap();
         }
     }
+    let bincode_time = start.elapsed() / 100;
+    println!("time to load bincode: {:?}", bincode_time);
 
-    println!("time to search: {:?}", start.elapsed() / 100);
-
-    let results = heap.into_vec();
-    for result in results {
-        let shard = &shards[result.shard_id];
-        let meta = shard.open_meta();
-        println!("got url {}: {}, {}", meta[result.id].url, result.val, shard.term_counts()[result.id]);
+    let start = Instant::now();
+    for i in 0..100 {
+        println!("benchmarking iter {}, time {:?}", i, start.elapsed());
+        for entry in fs::read_dir(&custom_dir).unwrap() {
+            let path = entry.unwrap().path();
+            let bytes = fs::read(path).unwrap();
+            let _data = RleEncoding::deserialize(bytes).unwrap();
+        }
     }
+    let custom_time = start.elapsed() / 100;
+    println!("time to load custom: {:?}", custom_time);
+    println!("time to load bincode: {:?}", bincode_time);
+
+    // let mut heap = BinaryHeap::new();
+    // for i in 0..20 {
+    //     heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
+    // }
+
+    // let start = Instant::now();
+    // for i in 0..100 {
+    //     println!("searching iter {}, time {:?}", i, start.elapsed());
+    //     for (shard_id, shard) in shards.iter_mut().enumerate() {
+    //         let postings = match shard.get_postings(query) {
+    //             Some(postings) => postings,
+    //             None => continue,
+    //         };
+    //         let postings = postings.decode(100000);
+    //         for (id, val) in postings.into_iter().enumerate() {
+    //             if val > heap.peek().unwrap().val {
+    //                 heap.pop();
+    //                 heap.push(QueryMatch { id, shard_id, val });
+    //             }
+    //         }
+    //     }
+    // }
+    // println!("time to search bincode: {:?}", start.elapsed() / 100);
+
+    // let results = heap.into_vec();
+    // for result in results {
+    //     let shard = &shards[result.shard_id];
+    //     let meta = shard.open_meta();
+    //     println!("got url {}: {}, {}", meta[result.id].url, result.val, shard.term_counts()[result.id]);
+    // }
 }
