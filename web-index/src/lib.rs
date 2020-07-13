@@ -122,7 +122,8 @@ impl RleEncoding {
         let n_segs = u32::from_be_bytes(serialized[4..8].try_into().ok()?);
         let mut encoded = Vec::with_capacity(n_segs as usize);
         let mut i = 8;
-        for _ in 0..n_segs {
+        for j in 0..n_segs {
+            println!("at segment {}/{}", j, n_segs);
             let seg_len = u32::from_be_bytes(serialized[i..(i + 4)].try_into().ok()?);
             i += 4;
             if seg_len >= 2^31 {
