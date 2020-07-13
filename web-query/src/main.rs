@@ -57,38 +57,38 @@ fn main() {
     fs::create_dir_all(&bincode_dir).unwrap();
     fs::create_dir_all(&custom_dir).unwrap();
 
-    println!("trying to read from cache...");
-    let headers = match fs::read(&cache_path) {
-        Ok(bytes) => deserialize(&bytes).unwrap(),
-        Err(_) => fill_cache(&index_dir, &meta_dir, &cache_path),
-    };
-    println!("finished reading and deserializing");
+    // println!("trying to read from cache...");
+    // let headers = match fs::read(&cache_path) {
+    //     Ok(bytes) => deserialize(&bytes).unwrap(),
+    //     Err(_) => fill_cache(&index_dir, &meta_dir, &cache_path),
+    // };
+    // println!("finished reading and deserializing");
 
-    let mut shards = headers.into_iter()
-        .map(|header| IndexShard::from_header(header, &index_dir, &meta_dir))
-        .collect::<Vec<_>>();
-    println!("finished opening {} shards", shards.len());
+    // let mut shards = headers.into_iter()
+    //     .map(|header| IndexShard::from_header(header, &index_dir, &meta_dir))
+    //     .collect::<Vec<_>>();
+    // println!("finished opening {} shards", shards.len());
 
-    for (shard_id, shard) in shards.iter_mut().enumerate() {
-        let postings = match shard.get_postings(query) {
-            Some(postings) => postings,
-            None => continue,
-        };
-        fs::write(bincode_dir.join(format!("{}", shard_id)), serialize(&postings).unwrap()).unwrap();
-        fs::write(custom_dir.join(format!("{}", shard_id)), postings.serialize()).unwrap();
-    }
+    // for (shard_id, shard) in shards.iter_mut().enumerate() {
+    //     let postings = match shard.get_postings(query) {
+    //         Some(postings) => postings,
+    //         None => continue,
+    //     };
+    //     fs::write(bincode_dir.join(format!("{}", shard_id)), serialize(&postings).unwrap()).unwrap();
+    //     fs::write(custom_dir.join(format!("{}", shard_id)), postings.serialize()).unwrap();
+    // }
 
-    let start = Instant::now();
-    for i in 0..100 {
-        println!("benchmarking iter {}, time {:?}", i, start.elapsed());
-        for entry in fs::read_dir(&bincode_dir).unwrap() {
-            let path = entry.unwrap().path();
-            let bytes = fs::read(path).unwrap();
-            let _data: RleEncoding = deserialize(&bytes).unwrap();
-        }
-    }
-    let bincode_time = start.elapsed() / 100;
-    println!("time to load bincode: {:?}", bincode_time);
+    // let start = Instant::now();
+    // for i in 0..100 {
+    //     println!("benchmarking iter {}, time {:?}", i, start.elapsed());
+    //     for entry in fs::read_dir(&bincode_dir).unwrap() {
+    //         let path = entry.unwrap().path();
+    //         let bytes = fs::read(path).unwrap();
+    //         let _data: RleEncoding = deserialize(&bytes).unwrap();
+    //     }
+    // }
+    // let bincode_time = start.elapsed() / 100;
+    // println!("time to load bincode: {:?}", bincode_time);
 
     let start = Instant::now();
     for i in 0..100 {
@@ -96,12 +96,13 @@ fn main() {
         for entry in fs::read_dir(&custom_dir).unwrap() {
             let path = entry.unwrap().path();
             let bytes = fs::read(path).unwrap();
-            let _data = RleEncoding::deserialize(bytes).unwrap();
+            let data = RleEncoding::deserialize(bytes).unwrap();
+            let _postings = data.decode(100000);
         }
     }
     let custom_time = start.elapsed() / 100;
     println!("time to load custom: {:?}", custom_time);
-    println!("time to load bincode: {:?}", bincode_time);
+    // println!("time to load bincode: {:?}", bincode_time);
 
     // let mut heap = BinaryHeap::new();
     // for i in 0..20 {
