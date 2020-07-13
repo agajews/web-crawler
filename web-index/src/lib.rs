@@ -366,27 +366,31 @@ pub struct UrlMeta {
 }
 
 pub struct IndexShard {
-    index: tokio::fs::File,
+    index: fs::File,
     headers: BTreeMap<String, (u32, u32)>,
     meta_path: PathBuf,
     term_counts: Vec<u8>,
+    core: String,
+    idx: usize,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct IndexHeader {
+    headers: BTreeMap<String, (u32, u32)>,
+    term_counts: Vec<u8>,
+    core: String,
+    idx: usize,
 }
 
 impl IndexShard {
-    pub async fn open<P: Into<PathBuf>, Q: Into<PathBuf>>(index_dir: P, meta_dir: Q, core: &str, idx: usize) -> Option<IndexShard> {
-        let index_dir = index_dir.into().join(core).join(format!("db{}", idx));
-        let meta_path = meta_dir.into().join(core).join(format!("db{}", idx));
-        // println!("deserializing headers");
-        let headers = deserialize(&tokio::fs::read(index_dir.join("metadata")).await.ok()?).ok()?;
-        // println!("opening index");
-        let index = tokio::fs::File::open(index_dir.join("data")).await.ok()?;
-        // println!("deserializing meta");
-        let meta: Vec<UrlMeta> = deserialize(&tokio::fs::read(&meta_path).await.ok()?).ok()?;
-        // println!("collecting term counts");
+    pub fn open<P: Into<PathBuf>, Q: Into<PathBuf>>(index_dir: P, meta_dir: Q, core: String, idx: usize) -> Option<IndexShard> {
+        let index_dir = index_dir.into().join(&core).join(format!("db{}", idx));
+        let meta_path = meta_dir.into().join(&core).join(format!("db{}", idx));
+        let headers = deserialize(&fs::read(index_dir.join("metadata")).ok()?).ok()?;
+        let index = fs::File::open(index_dir.join("data")).ok()?;
+        let meta: Vec<UrlMeta> = deserialize(&fs::read(&meta_path).ok()?).ok()?;
         let term_counts = meta.iter().map(|url_meta| url_meta.n_terms).collect::<Vec<_>>();
-        // let term_counts = Vec::new();
-        // println!("done");
-        Some(Self { index, headers, meta_path, term_counts })
+        Some(Self { index, headers, meta_path, term_counts, core, idx })
     }
 
     pub fn find_idxs<P: AsRef<Path>>(index_dir: P) -> Vec<(String, usize)> {
@@ -404,6 +408,18 @@ impl IndexShard {
         idxs
     }
 
+    pub fn into_header(self) -> IndexHeader {
+        IndexHeader { headers: self.headers, term_counts: self.term_counts, core: self.core, idx: self.idx }
+    }
+
+    pub fn from_header<P: Into<PathBuf>, Q: Into<PathBuf>>(header: IndexHeader, index_dir: P, meta_dir: Q) -> IndexShard {
+        let IndexHeader { headers, term_counts, core, idx } = header;
+        let index_dir = index_dir.into().join(&core).join(format!("db{}", idx));
+        let meta_path = meta_dir.into().join(&core).join(format!("db{}", idx));
+        let index = fs::File::open(index_dir.join("data")).unwrap();
+        Self { index, headers, meta_path, term_counts, core, idx }
+    }
+
     pub fn num_terms(&self) -> usize {
         self.headers.len()
     }
@@ -412,16 +428,16 @@ impl IndexShard {
         &self.term_counts
     }
 
-    pub async fn get_postings(&mut self, term: &str) -> Option<RleEncoding> {
+    pub fn get_postings(&mut self, term: &str) -> Option<RleEncoding> {
         let (offset, len) = self.headers.get(term)?;
-        self.index.seek(SeekFrom::Start(*offset as u64)).await.ok()?;
+        self.index.seek(SeekFrom::Start(*offset as u64)).ok()?;
         let mut bytes = vec![0; *len as usize];
-        self.index.read_exact(&mut bytes).await.unwrap();
+        self.index.read_exact(&mut bytes).unwrap();
         let postings: RleEncoding = deserialize(&bytes).ok()?;
         Some(postings)
     }
 
-    pub async fn open_meta(&self) -> Vec<UrlMeta> {
-        deserialize(&tokio::fs::read(&self.meta_path).await.unwrap()).unwrap()
+    pub fn open_meta(&self) -> Vec<UrlMeta> {
+        deserialize(&fs::read(&self.meta_path).unwrap()).unwrap()
     }
 }

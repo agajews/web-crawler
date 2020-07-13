@@ -1,17 +1,15 @@
-use web_index::IndexShard;
-use std::path::PathBuf;
+use web_index::{IndexShard, IndexHeader};
+use std::path::{Path, PathBuf};
 use std::env;
 use std::collections::BinaryHeap;
 use std::time::Instant;
-use std::sync::{Arc, Mutex};
-
-const N_THREADS: usize = 1;
+use std::fs;
+use bincode::{deserialize, serialize};
 
 #[derive(Eq, PartialEq)]
 struct QueryMatch {
     id: usize,
     shard_id: usize,
-    tid: usize,
     val: u8,
 }
 
@@ -29,82 +27,67 @@ impl PartialOrd for QueryMatch {
 }
 
 
-#[tokio::main]
-async fn main() {
+fn fill_cache(index_dir: &Path, meta_dir: &Path, cache_path: &Path) -> Vec<IndexHeader> {
+    let idxs = IndexShard::find_idxs(&index_dir);
+    let mut shards = Vec::with_capacity(idxs.len());
+    for (core, idx) in idxs {
+        println!("opening shard {}:{}", core, idx);
+        if let Some(shard) = IndexShard::open(&index_dir, &meta_dir, core, idx) {
+            shards.push(shard);
+        }
+    }
+    let headers = shards.into_iter().map(IndexShard::into_header).collect::<Vec<_>>();
+    let bytes = serialize(&headers).unwrap();
+    fs::write(cache_path, bytes).unwrap();
+    headers
+}
+
+
+fn main() {
     let query = "robotics";
 
     let top_dir: PathBuf = env::var("CRAWLER_DIR").unwrap().into();
     let index_dir = top_dir.join("index");
     let meta_dir = top_dir.join("meta");
-    let idxs = Arc::new(IndexShard::find_idxs(&index_dir));
 
-    let mut threads = Vec::with_capacity(N_THREADS);
-    for tid in 0..N_THREADS {
-        let idxs = idxs.clone();
-        let index_dir = index_dir.clone();
-        let meta_dir = meta_dir.clone();
-        threads.push(tokio::spawn(async move {
-            let shards_per_thread = (idxs.len() + N_THREADS - 1) / N_THREADS;
-            let start = shards_per_thread * tid;
-            let end = std::cmp::min(shards_per_thread * (tid + 1), idxs.len());
-            let mut shards = Vec::with_capacity(end - start);
-            for shard_id in start..end {
-                let (core, idx) = &idxs[shard_id];
-                println!("opening shard {}:{}", core, idx);
-                let shard = match IndexShard::open(&index_dir, &meta_dir, core, *idx).await {
-                    Some(shard) => shard,
-                    None => continue,
-                };
-                shards.push(shard);
-            }
-            shards
-        }));
-    }
-    let mut shard_vecs = Vec::with_capacity(N_THREADS);
-    for thread in threads {
-        shard_vecs.push(thread.await.unwrap());
-    }
-    println!("finished opening {} shards", idxs.len());
+    let cache_path: PathBuf = env::var("CACHE_PATH").unwrap().into();
+
+    let headers = match fs::read(&cache_path) {
+        Ok(bytes) => deserialize(&bytes).unwrap(),
+        Err(_) => fill_cache(&index_dir, &meta_dir, &cache_path),
+    };
+
+    let mut shards = headers.into_iter()
+        .map(|header| IndexShard::from_header(header, &index_dir, &meta_dir))
+        .collect::<Vec<_>>();
+    println!("finished opening {} shards", shards.len());
 
     let mut heap = BinaryHeap::new();
     for i in 0..20 {
-        heap.push(QueryMatch { id: i, tid: 0, shard_id: 0, val: 0 });
+        heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
     }
-    let heap = Arc::new(Mutex::new(heap));
 
-    let mut threads = Vec::with_capacity(N_THREADS);
     let start = Instant::now();
-    for (tid, mut shards) in shard_vecs.into_iter().enumerate() {
-        let heap = heap.clone();
-        threads.push(tokio::spawn(async move {
-            for (shard_id, shard) in shards.iter_mut().enumerate() {
-                let postings = match shard.get_postings(query).await {
-                    Some(postings) => postings,
-                    None => continue,
-                };
-                let mut heap = heap.lock().unwrap();
-                let postings = postings.decode(100000);
-                for (id, val) in postings.into_iter().enumerate() {
-                    if val > heap.peek().unwrap().val {
-                        heap.pop();
-                        heap.push(QueryMatch { id, tid, shard_id, val });
-                    }
-                }
+    for (shard_id, shard) in shards.iter_mut().enumerate() {
+        let postings = match shard.get_postings(query) {
+            Some(postings) => postings,
+            None => continue,
+        };
+        let postings = postings.decode(100000);
+        for (id, val) in postings.into_iter().enumerate() {
+            if val > heap.peek().unwrap().val {
+                heap.pop();
+                heap.push(QueryMatch { id, shard_id, val });
             }
-            shards
-        }));
+        }
     }
-    let mut shard_vecs = Vec::with_capacity(N_THREADS);
-    for thread in threads {
-        shard_vecs.push(thread.await.unwrap());
-    }
+
     println!("time to search: {:?}", start.elapsed());
 
-    let heap = Arc::try_unwrap(heap).unwrap_or(Mutex::new(BinaryHeap::new())).into_inner().unwrap();
     let results = heap.into_vec();
     for result in results {
-        let shard = &shard_vecs[result.tid][result.shard_id];
-        let meta = shard.open_meta().await;
+        let shard = &shards[result.shard_id];
+        let meta = shard.open_meta();
         println!("got url {}: {}, {}", meta[result.id].url, result.val, shard.term_counts()[result.id]);
     }
 }
