@@ -96,8 +96,7 @@ fn main() {
         for entry in fs::read_dir(&custom_dir).unwrap() {
             let path = entry.unwrap().path();
             let bytes = fs::read(path).unwrap();
-            let data = RleEncoding::deserialize(bytes).unwrap();
-            let _postings = data.decode(100000);
+            let _data = RleEncoding::deserialize(bytes).unwrap();
         }
     }
     let custom_time = start.elapsed() / 100;

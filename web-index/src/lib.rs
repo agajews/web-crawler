@@ -117,27 +117,36 @@ impl RleEncoding {
         serialized
     }
 
-    pub fn deserialize(serialized: Vec<u8>) -> Option<RleEncoding> {
+    pub fn deserialize(serialized: Vec<u8>) -> Option<Vec<u8>> {
         let len = u32::from_be_bytes(serialized[0..4].try_into().ok()?) as usize;
         let n_segs = u32::from_be_bytes(serialized[4..8].try_into().ok()?);
-        let mut encoded = Vec::with_capacity(n_segs as usize);
+        let mut decoded = vec![0; len];
         let mut i = 8;
-        for j in 0..n_segs {
-            // println!("at segment {}/{}", j, n_segs);
+        let mut k = 0;
+        for _ in 0..n_segs {
             let seg_len = u32::from_be_bytes(serialized[i..(i + 4)].try_into().ok()?);
-            // println!("seg len: {}", seg_len);
             i += 4;
             if seg_len >= (1 << 31) {
-                encoded.push(RunSegment::Run(seg_len - (1 << 31), *serialized.get(i)?));
-                // println!("got run");
+                let run_len = seg_len - (1 << 31);
+                let val = *serialized.get(i)?;
+                if val == 0 {
+                    k += run_len as usize;
+                } else {
+                    for _ in 0..run_len {
+                        decoded[k] = val;
+                        k += 1;
+                    }
+                }
                 i += 1;
             } else {
-                encoded.push(RunSegment::NonRun(serialized[i..(i + seg_len as usize)].to_vec()));
-                // println!("got non run");
+                for j in 0..(seg_len as usize) {
+                    decoded[k] = *serialized.get(i + j)?;
+                    k += 1;
+                }
                 i += seg_len as usize;
             }
         }
-        Some(RleEncoding { len, encoded })
+        Some(decoded)
     }
 
     pub fn decode(&self, size: usize) -> Vec<u8> {
