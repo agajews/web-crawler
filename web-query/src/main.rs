@@ -59,7 +59,7 @@ fn get_scores(shard: &mut IndexShard, terms: &[String]) -> Option<Vec<u8>> {
 
 fn main() {
     // let query = "robotics";
-    let terms = env::args().collect::<Vec<_>>();
+    let terms = env::args().skip(1).collect::<Vec<_>>();
 
     let top_dir: PathBuf = env::var("CRAWLER_DIR").unwrap().into();
     let index_dir = top_dir.join("index");
