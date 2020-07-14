@@ -77,7 +77,16 @@ fn join_scores(scores: &mut [u8], posting: &[u8]) {
 }
 
 fn compute_max(scores: &[u8]) -> u8 {
-    *scores.iter().max().unwrap()
+    let mut maxs = u8x32::splat(0);
+    for i in (0..scores.len()).step_by(32) {
+        let simd = u8x32::from_slice_unaligned(&scores[i..]);
+        maxs = maxs.max(simd);
+    }
+    let mut max = 0;
+    for i in 0..32 {
+        max = std::cmp::max(max, maxs.extract(i));
+    }
+    max
 }
 
 fn get_scores(shard: &mut IndexShard, terms: &[String]) -> Option<Vec<u8>> {
