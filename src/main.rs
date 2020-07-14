@@ -46,19 +46,19 @@ const ROOT_SET: [&str; 4] = [
 
 // DEBUG
 
-const BLOOM_BYTES: usize = 100_000_000;
-const EST_URLS: usize = 10_000_000_000;
-const SWAP_CAP: usize = 1_000;
-const INDEX_CAP: usize = 100;
-const CLIENT_DROP: usize = 100;
+// const BLOOM_BYTES: usize = 100_000_000;
+// const EST_URLS: usize = 10_000_000_000;
+// const SWAP_CAP: usize = 1_000;
+// const INDEX_CAP: usize = 100;
+// const CLIENT_DROP: usize = 100;
 
 // PROD
 
-// const BLOOM_BYTES: usize = 20_000_000_000;
-// const EST_URLS: usize = 10_000_000_000;
-// const SWAP_CAP: usize = 1_000;
-// const INDEX_CAP: usize = 100_000;
-// const CLIENT_DROP: usize = 100;
+const BLOOM_BYTES: usize = 20_000_000_000;
+const EST_URLS: usize = 10_000_000_000;
+const SWAP_CAP: usize = 1_000;
+const INDEX_CAP: usize = 100_000;
+const CLIENT_DROP: usize = 100;
 
 lazy_static! {
     static ref ACADEMIC_RE: Regex = Regex::new(r"^.+\.(edu|ac\.??)$").unwrap();
@@ -489,8 +489,8 @@ async fn main() {
     let swap_dir = top_dir.join("swap");
     let index_dir = top_dir.join("index");
     let meta_dir = top_dir.join("meta");
-    let core_ids = core_affinity::get_core_ids().unwrap().into_iter().take(1).collect::<Vec<_>>();
-    // let core_ids = core_affinity::get_core_ids().unwrap();
+    // let core_ids = core_affinity::get_core_ids().unwrap().into_iter().take(1).collect::<Vec<_>>();
+    let core_ids = core_affinity::get_core_ids().unwrap();
     let pool = TaskPool::new(swap_dir, SWAP_CAP, core_ids.len() * max_conns);
     let seen = Arc::new(cbloom::Filter::new(BLOOM_BYTES, EST_URLS));
     for url in &ROOT_SET {
