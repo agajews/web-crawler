@@ -76,6 +76,19 @@ fn join_scores(scores: &mut [u8], posting: &[u8]) {
     }
 }
 
+fn compute_max(scores: &[u8]) -> u8 {
+    let mut maxs = u8x32::splat(0);
+    for i in (0..scores.len()).step_by(32) {
+        let simd = u8x32::from_slice_unaligned(&scores[i..]);
+        maxs = maxs.max(simd);
+    }
+    let mut max = 0;
+    for i in 0..32 {
+        max = std::cmp::max(max, maxs.extract(i));
+    }
+    max
+}
+
 fn get_scores(shard: &mut IndexShard, terms: &[String]) -> Option<Vec<u8>> {
     let mut postings = Vec::with_capacity(terms.len());
     for term in terms {
@@ -86,7 +99,7 @@ fn get_scores(shard: &mut IndexShard, terms: &[String]) -> Option<Vec<u8>> {
         divide_scores(&mut postings[i], idfs[i]);
     }
     let maxs = postings.iter()
-        .map(|posting| *posting.iter().max().unwrap() as u32)
+        .map(|posting| compute_max(&posting) as u32)
         .collect::<Vec<_>>();
     let total_max = maxs.iter().sum::<u32>();
     let denominator = (total_max / 255 + 1) as u8;
