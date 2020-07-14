@@ -60,7 +60,13 @@ fn get_scores(shard: &mut IndexShard, terms: &[String]) -> Option<Vec<u8>> {
     }
     for posting in postings {
         for j in 0..posting.len() {
-            scores[j] += posting[j] / denominator;
+            if scores[j] > 0 {
+                if posting[j] > 0 {
+                    scores[j] += posting[j] / denominator;
+                } else {
+                    scores[j] = 0;
+                }
+            }
         }
     }
     Some(scores)
