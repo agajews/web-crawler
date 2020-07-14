@@ -13,6 +13,7 @@ use tokio::sync::Mutex;
 use std::io::prelude::*;
 use std::io::SeekFrom;
 use std::convert::TryInto;
+use fasthash::metro::hash64;
 
 pub struct RunEncoder {
     len: usize,
@@ -238,19 +239,31 @@ impl DiskMultiMap {
         self.dir.join(format!("db{}", idx))
     }
 
+    fn serialize_headers(offsets: BTreeMap<u64, (u32, u32)>) -> Vec<u8> {
+        let offsets = offsets.into_iter().collect::<Vec<_>>();
+        let mut encoded = Vec::with_capacity(4 + 16 * offsets.len());
+        encoded.extend_from_slice(&(offsets.len() as u32).to_be_bytes());
+        for (key, (offset, len)) in offsets {
+            encoded.extend_from_slice(&key.to_be_bytes());
+            encoded.extend_from_slice(&offset.to_be_bytes());
+            encoded.extend_from_slice(&len.to_be_bytes());
+        }
+        encoded
+    }
+
     async fn dump_cache(cache: BTreeMap<String, RunEncoder>, path: PathBuf) {
         println!("writing to disk: {:?}", path);
         fs::create_dir_all(&path).unwrap();
         let mut data = Vec::new();
-        let mut metadata: BTreeMap<String, (u32, u32)> = BTreeMap::new();
+        let mut metadata: BTreeMap<u64, (u32, u32)> = BTreeMap::new();
         let mut offset: u32 = 0;
         for (key, encoder) in cache {
             let bytes = encoder.serialize();
-            metadata.insert(key, (offset, bytes.len() as u32));
+            metadata.insert(hash64(key), (offset, bytes.len() as u32));
             data.extend_from_slice(&bytes);
             offset += bytes.len() as u32;
         }
-        sync_write(path.join("metadata"), &serialize(&metadata).unwrap()).await;
+        sync_write(path.join("metadata"), &Self::serialize_headers(metadata)).await;
         sync_write(path.join("data"), &data).await;
         println!("finished writing to {:?}", path);
     }
