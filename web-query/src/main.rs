@@ -29,34 +29,35 @@ impl PartialOrd for QueryMatch {
 
 
 fn compute_idfs(postings: &Vec<Vec<u8>>) -> Vec<u8> {
-    // let mut idfs = Vec::with_capacity(postings.len());
-    // let zero = u8x16::splat(0);
-    // for posting in postings {
-    //     let mut count = u16x16::splat(0);
-    //     for i in (0..(posting.len())).step_by(32) {
-    //         let simd = u8x16::from_slice_unaligned(&posting[i..]);
-    //         count += u16x16::from_cast(simd.ne(zero));
-    //     }
-    //     let mut total_count: u32 = 0;
-    //     for i in 0..16 {
-    //         total_count += count.extract(i) as u32;
-    //     }
-    //     let normalized_count = total_count * (1 << 16) / SHARD_SIZE as u32;
-    //     let log_idf = 32 - normalized_count.leading_zeros();
-    //     let idf = 1 << (log_idf / 2);
-    //     idfs.push(idf);
-    // }
-    let mut idfs = postings.iter()
-        .map(|posting| (posting.iter().filter(|byte| **byte > 0).count() * (1 << 15)) / SHARD_SIZE)
-        .map(|idf| 32 - (idf as u32).leading_zeros())
-        .map(|log_idf| 1 << (log_idf / 2))
-        .collect::<Vec<_>>();
-    let min_idf = *idfs.iter().min().unwrap();
-    // println!("idfs: {:?}", idfs);
-    for i in 0..idfs.len() {
-        idfs[i] /= min_idf;
+    let mut idfs = Vec::with_capacity(postings.len());
+    let zero = u8x16::splat(0);
+    for posting in postings {
+        let mut count = u16x16::splat(0);
+        for i in (0..(posting.len())).step_by(32) {
+            let simd = u8x16::from_slice_unaligned(&posting[i..]);
+            count += u16x16::from_cast(simd.ne(zero));
+        }
+        let mut total_count: u32 = 0;
+        for i in 0..16 {
+            total_count += count.extract(i) as u32;
+        }
+        let normalized_count = total_count * (1 << 16) / SHARD_SIZE as u32;
+        let log_idf = 32 - normalized_count.leading_zeros();
+        let idf = 1 << (log_idf / 2);
+        idfs.push(idf);
     }
     idfs
+    // let mut idfs = postings.iter()
+    //     .map(|posting| (posting.iter().filter(|byte| **byte > 0).count() * (1 << 15)) / SHARD_SIZE)
+    //     .map(|idf| 32 - (idf as u32).leading_zeros())
+    //     .map(|log_idf| 1 << (log_idf / 2))
+    //     .collect::<Vec<_>>();
+    // let min_idf = *idfs.iter().min().unwrap();
+    // // println!("idfs: {:?}", idfs);
+    // for i in 0..idfs.len() {
+    //     idfs[i] /= min_idf;
+    // }
+    // idfs
 }
 
 fn get_scores(shard: &mut IndexShard, terms: &[String]) -> Option<Vec<u8>> {
