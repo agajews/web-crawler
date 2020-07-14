@@ -48,10 +48,18 @@ fn get_scores(shard: &mut IndexShard, terms: &[String]) -> Option<Vec<u8>> {
             posting[j] /= idf;
         }
     }
+    let maxs = postings.iter()
+        .map(|posting| *posting.iter().max().unwrap() as u32)
+        .collect::<Vec<_>>();
+    let total_max = maxs.iter().sum::<u32>();
+    let denominator = (total_max / 255) as u8;
     let mut scores = postings.pop().unwrap();
+    for j in 0..scores.len() {
+        scores[j] /= denominator;
+    }
     for posting in postings {
         for j in 0..posting.len() {
-            scores[j] += posting[j];
+            scores[j] += posting[j] / denominator;
         }
     }
     Some(scores)
