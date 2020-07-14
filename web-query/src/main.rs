@@ -54,8 +54,9 @@ fn main() {
             Some(postings) => postings,
             None => continue,
         };
+        let term_counts = shard.term_counts();
         for (id, val) in postings.into_iter().enumerate() {
-            if val > heap.peek().unwrap().val {
+            if val > heap.peek().unwrap().val && term_counts[id] >= 8 {
                 heap.pop();
                 heap.push(QueryMatch { id, shard_id, val });
             }
