@@ -63,6 +63,7 @@ fn divide_scores(posting: &mut [u8], denominator: u8) {
     for i in (0..posting.len()).step_by(32) {
         let mut simd = u8x32::from_slice_unaligned(&posting[i..]);
         simd /= denominator;
+        simd.write_to_slice_unaligned(&mut posting[i..]);
     }
 }
 
