@@ -116,14 +116,14 @@ fn main() {
     println!("finished opening {} shards", shards.len());
 
     let start = Instant::now();
-    for _ in 0..10 {
+    for _ in 0..100 {
         for shard in &mut shards {
             let posting = shard.get_postings(query, SHARD_SIZE).unwrap();
             let postings = vec![posting];
             let _idfs = compute_idfs(&postings);
         }
     }
-    println!("time to compute: {:?}", start.elapsed() / 10);
+    println!("time to compute: {:?}", start.elapsed() / 100);
 
     // for _ in 0..100 {
     //     let start = Instant::now();
