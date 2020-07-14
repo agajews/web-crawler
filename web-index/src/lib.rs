@@ -113,7 +113,7 @@ impl RunEncoder {
     fn assign_non_run(slice: &mut [u8], source: &[u8]) {
         for i in (0..(slice.len())).step_by(32) {
             let simd = u8x32::from_slice_unaligned(&source[i..]);
-            simd.write_to_slice_unaligned(&mut slice[i..]);
+            simd.write_to_slice_unaligned(&mut slice[i..(i + 32)]);
         }
     }
 
