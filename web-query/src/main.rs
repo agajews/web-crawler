@@ -76,19 +76,6 @@ fn join_scores(scores: &mut [u8], posting: &[u8]) {
     }
 }
 
-fn compute_max(scores: &[u8]) -> u8 {
-    let mut maxs = u8x32::splat(0);
-    for i in (0..scores.len()).step_by(32) {
-        let simd = u8x32::from_slice_unaligned(&scores[i..]);
-        maxs = maxs.max(simd);
-    }
-    let mut max = 0;
-    for i in 0..32 {
-        max = std::cmp::max(max, maxs.extract(i));
-    }
-    max
-}
-
 fn get_scores(shard: &mut IndexShard, terms: &[String]) -> Option<Vec<u8>> {
     let mut postings = Vec::with_capacity(terms.len());
     for term in terms {
@@ -99,7 +86,7 @@ fn get_scores(shard: &mut IndexShard, terms: &[String]) -> Option<Vec<u8>> {
         divide_scores(&mut postings[i], idfs[i]);
     }
     let maxs = postings.iter()
-        .map(|posting| compute_max(&posting) as u32)
+        .map(|posting| *posting.iter().max().unwrap() as u32)
         .collect::<Vec<_>>();
     let total_max = maxs.iter().sum::<u32>();
     let denominator = (total_max / 255 + 1) as u8;
@@ -114,9 +101,7 @@ fn get_scores(shard: &mut IndexShard, terms: &[String]) -> Option<Vec<u8>> {
 }
 
 fn main() {
-    let query = "robotics";
-    let query_b = "meta";
-    // let terms = env::args().skip(1).collect::<Vec<_>>();
+    let terms = env::args().skip(1).collect::<Vec<_>>();
 
     let top_dir: PathBuf = env::var("CRAWLER_DIR").unwrap().into();
     let index_dir = top_dir.join("index");
@@ -135,40 +120,29 @@ fn main() {
     println!("finished opening {} shards", shards.len());
 
     let start = Instant::now();
-    for _ in 0..100 {
-        for shard in &mut shards {
-            let mut posting = shard.get_postings(query, SHARD_SIZE).unwrap();
-            compute_max(&posting);
+    let mut heap = BinaryHeap::new();
+    for i in 0..20 {
+        heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
+    }
+    for (shard_id, shard) in shards.iter_mut().enumerate() {
+        let postings = match get_scores(shard, &terms) {
+            Some(postings) => postings,
+            None => continue,
+        };
+        let term_counts = shard.term_counts();
+        for (id, val) in postings.into_iter().enumerate() {
+            if val > heap.peek().unwrap().val && term_counts[id] >= 8 {
+                heap.pop();
+                heap.push(QueryMatch { id, shard_id, val });
+            }
         }
     }
-    println!("time to compute: {:?}", start.elapsed() / 100);
+    println!("time to search: {:?}", start.elapsed());
 
-    // for _ in 0..100 {
-    //     let start = Instant::now();
-    //     let mut heap = BinaryHeap::new();
-    //     for i in 0..20 {
-    //         heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
-    //     }
-    //     for (shard_id, shard) in shards.iter_mut().enumerate() {
-    //         let postings = match get_scores(shard, &terms) {
-    //             Some(postings) => postings,
-    //             None => continue,
-    //         };
-    //         let term_counts = shard.term_counts();
-    //         for (id, val) in postings.into_iter().enumerate() {
-    //             if val > heap.peek().unwrap().val && term_counts[id] >= 8 {
-    //                 heap.pop();
-    //                 heap.push(QueryMatch { id, shard_id, val });
-    //             }
-    //         }
-    //     }
-    //     println!("time to search: {:?}", start.elapsed());
-    // }
-
-    // let results = heap.into_sorted_vec();
-    // for result in results {
-    //     let shard = &mut shards[result.shard_id];
-    //     let url = shard.get_url(result.id).unwrap();
-    //     println!("got url {}: {}, {}", url, result.val, shard.term_counts()[result.id]);
-    // }
+    let results = heap.into_sorted_vec();
+    for result in results {
+        let shard = &mut shards[result.shard_id];
+        let url = shard.get_url(result.id).unwrap();
+        println!("got url {}: {}, {}", url, result.val, shard.term_counts()[result.id]);
+    }
 }
