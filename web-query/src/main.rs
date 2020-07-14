@@ -47,17 +47,12 @@ fn compute_idfs(postings: &Vec<Vec<u8>>) -> Vec<u8> {
         idfs.push(idf);
     }
     idfs
-    // let mut idfs = postings.iter()
-    //     .map(|posting| (posting.iter().filter(|byte| **byte > 0).count() * (1 << 15)) / SHARD_SIZE)
-    //     .map(|idf| 32 - (idf as u32).leading_zeros())
-    //     .map(|log_idf| 1 << (log_idf / 2))
-    //     .collect::<Vec<_>>();
-    // let min_idf = *idfs.iter().min().unwrap();
-    // // println!("idfs: {:?}", idfs);
-    // for i in 0..idfs.len() {
-    //     idfs[i] /= min_idf;
-    // }
-    // idfs
+}
+
+fn divide_scores(posting: &mut [u8], idf: u8) {
+    for j in 0..posting.len() {
+        posting[j] /= idf;
+    }
 }
 
 fn get_scores(shard: &mut IndexShard, terms: &[String]) -> Option<Vec<u8>> {
@@ -119,9 +114,8 @@ fn main() {
     let start = Instant::now();
     for _ in 0..100 {
         for shard in &mut shards {
-            let posting = shard.get_postings(query, SHARD_SIZE).unwrap();
-            let postings = vec![posting];
-            let _idfs = compute_idfs(&postings);
+            let mut posting = shard.get_postings(query, SHARD_SIZE).unwrap();
+            divide_scores(&mut posting, 90);
         }
     }
     println!("time to compute: {:?}", start.elapsed() / 100);
