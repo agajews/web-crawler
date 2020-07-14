@@ -111,17 +111,7 @@ impl RunEncoder {
     }
 
     fn assign_non_run(slice: &mut [u8], source: &[u8]) {
-        // slice.clone_from_slice(source);
-        let mut i = 0;
-        while i < slice.len() {
-            if i + 8 >= slice.len() {
-                break;
-            }
-            let simd = u8x8::from_slice_unaligned(&source[i..]);
-            simd.write_to_slice_unaligned(&mut slice[i..]);
-            i += 8;
-        }
-        slice[i..].copy_from_slice(&source[i..]);
+        slice.copy_from_slice(&source);
     }
 
     pub fn deserialize(serialized: Vec<u8>, size: usize) -> Option<Vec<u8>> {
