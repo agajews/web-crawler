@@ -104,16 +104,6 @@ impl RunEncoder {
         serialized
     }
 
-    // fn assign_run(slice: &mut [u8], val: u8) {
-    //     for k in 0..(slice.len()) {
-    //         slice[k] = val;
-    //     }
-    // }
-
-    // fn assign_non_run(slice: &mut [u8], source: &[u8]) {
-    //     slice.copy_from_slice(&source);
-    // }
-
     pub fn deserialize(serialized: Vec<u8>, size: usize) -> Option<Vec<u8>> {
         let len = u32::from_be_bytes(serialized[0..4].try_into().ok()?) as usize;
         assert!(size >= len);

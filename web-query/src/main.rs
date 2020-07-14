@@ -133,36 +133,26 @@ fn main() {
     println!("finished opening {} shards", shards.len());
 
     let start = Instant::now();
-    let mut count = 0;
     for _ in 0..10 {
         let mut heap = BinaryHeap::new();
         for i in 0..20 {
             heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
         }
         for (shard_id, shard) in shards.iter_mut().enumerate() {
-            for term in &terms {
-                let res = shard.get_postings(term, SHARD_SIZE);
-                if let Some(res) = res {
-                    count += res.len();
-                } else {
-                    println!("failed id: {}", shard_id);
+            let postings = match get_scores(shard, &terms) {
+                Some(postings) => postings,
+                None => continue,
+            };
+            let term_counts = shard.term_counts();
+            for (id, val) in postings.into_iter().enumerate() {
+                if val > heap.peek().unwrap().val && term_counts[id] >= 8 {
+                    heap.pop();
+                    heap.push(QueryMatch { id, shard_id, val });
                 }
             }
-            // let postings = match get_scores(shard, &terms) {
-            //     Some(postings) => postings,
-            //     None => continue,
-            // };
-            // let term_counts = shard.term_counts();
-            // for (id, val) in postings.into_iter().enumerate() {
-            //     if val > heap.peek().unwrap().val && term_counts[id] >= 8 {
-            //         heap.pop();
-            //         heap.push(QueryMatch { id, shard_id, val });
-            //     }
-            // }
         }
     }
     println!("time to search: {:?}", start.elapsed() / 10);
-    println!("count: {}", count);
 
     // let results = heap.into_sorted_vec();
     // for result in results {
