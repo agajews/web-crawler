@@ -48,7 +48,8 @@ fn compute_idfs(postings: &Vec<Vec<u8>>) -> Vec<u8> {
     for posting in postings {
         let mut total_count: u32 = 0;
         for i in (0..(posting.len())).step_by(32 * 128) {
-            total_count += count_nonzero(&posting[i..(i + 32 * 128)]);
+            let end = std::cmp::min(i + 32 * 128, posting.len());
+            total_count += count_nonzero(&posting[i..end]);
         }
         let normalized_count = total_count * (1 << 16) / SHARD_SIZE as u32;
         let log_idf = 32 - normalized_count.leading_zeros();
