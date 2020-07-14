@@ -139,10 +139,13 @@ fn main() {
             heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
         }
         for (shard_id, shard) in shards.iter_mut().enumerate() {
-            let postings = match get_scores(shard, &terms) {
-                Some(postings) => postings,
-                None => continue,
-            };
+            for term in &terms {
+                let _res = shard.get_postings(term, SHARD_SIZE);
+            }
+            // let postings = match get_scores(shard, &terms) {
+            //     Some(postings) => postings,
+            //     None => continue,
+            // };
             // let term_counts = shard.term_counts();
             // for (id, val) in postings.into_iter().enumerate() {
             //     if val > heap.peek().unwrap().val && term_counts[id] >= 8 {
