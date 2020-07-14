@@ -26,7 +26,7 @@ impl PartialOrd for QueryMatch {
 
 
 fn main() {
-    let query = "admissions";
+    let query = "robotics";
 
     let top_dir: PathBuf = env::var("CRAWLER_DIR").unwrap().into();
     let index_dir = top_dir.join("index");
