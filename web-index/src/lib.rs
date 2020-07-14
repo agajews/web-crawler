@@ -114,12 +114,12 @@ impl RunEncoder {
         // slice.clone_from_slice(source);
         let mut i = 0;
         while i < slice.len() {
-            if i + 32 >= slice.len() {
+            if i + 8 >= slice.len() {
                 break;
             }
-            let simd = u8x32::from_slice_unaligned(&source[i..]);
+            let simd = u8x8::from_slice_unaligned(&source[i..]);
             simd.write_to_slice_unaligned(&mut slice[i..]);
-            i += 32;
+            i += 8;
         }
         slice[i..].copy_from_slice(&source[i..]);
     }
