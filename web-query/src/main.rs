@@ -26,7 +26,7 @@ impl PartialOrd for QueryMatch {
 
 
 fn main() {
-    let query = "robotics";
+    let query = "admissions";
 
     let top_dir: PathBuf = env::var("CRAWLER_DIR").unwrap().into();
     let index_dir = top_dir.join("index");
@@ -40,6 +40,7 @@ fn main() {
             shards.push(shard);
         }
     }
+    println!("finished opening {} shards", shards.len());
 
     let start = Instant::now();
     let mut heap = BinaryHeap::new();

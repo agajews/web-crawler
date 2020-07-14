@@ -240,7 +240,7 @@ impl DiskMultiMap {
     }
 
     fn serialize_headers(offsets: BTreeMap<u64, (u32, u32)>) -> Vec<u8> {
-        let offsets = offsets.into_iter().collect::<Vec<_>>();
+        let offsets = offsets.iter().collect::<Vec<_>>();
         let mut encoded = Vec::with_capacity(4 + 16 * offsets.len());
         encoded.extend_from_slice(&(offsets.len() as u32).to_be_bytes());
         for (key, (offset, len)) in offsets {
@@ -311,6 +311,7 @@ impl DiskMeta {
         let term_path = db_dir.join("terms");
         self.db_count += 1;
         thread::spawn(move || {
+            fs::create_dir_all(&db_dir).unwrap();
             Self::dump_urls(url_path, urls);
             Self::write_and_sync(term_path, term_counts);
         });
@@ -418,7 +419,7 @@ impl IndexShard {
     fn deserialize_index_headers(bytes: &[u8]) -> Option<Vec<(u64, (u32, u32))>> {
         let len = u32::from_be_bytes(bytes[0..4].try_into().ok()?);
         let mut headers = Vec::with_capacity(len as usize);
-        let mut i = 0;
+        let mut i = 4;
         for _ in 0..len {
             let key = u64::from_be_bytes(bytes[i..(i + 8)].try_into().ok()?);
             i += 8;
