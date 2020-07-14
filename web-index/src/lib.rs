@@ -14,23 +14,12 @@ use std::io::prelude::*;
 use std::io::SeekFrom;
 use std::convert::TryInto;
 
-#[derive(Serialize, Deserialize, Debug)]
-enum RunSegment {
-    Run(u32, u8),
-    NonRun(Vec<u8>),
-}
-
 pub struct RunEncoder {
     len: usize,
-    encoded: Vec<RunSegment>,
+    encoded: Vec<u8>,
+    n_segs: usize,
     non_run: Vec<u8>,
     run: Vec<u8>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct RleEncoding {
-    len: usize,
-    encoded: Vec<RunSegment>,
 }
 
 impl RunEncoder {
@@ -40,6 +29,7 @@ impl RunEncoder {
             non_run: Vec::new(),
             run: Vec::new(),
             len: 0,
+            n_segs: 0,
         }
     }
 
@@ -52,10 +42,22 @@ impl RunEncoder {
             self.push(byte);
         } else {
             self.flush();
-            self.encoded.push(RunSegment::Run((idx - self.len) as u32, 0));
+            self.push_run((idx - self.len) as u32, 0);
             self.run.push(byte);
         }
         self.len = idx + 1;
+    }
+
+    fn push_run(&mut self, len: u32, val: u8) {
+        self.n_segs += 1;
+        self.encoded.extend_from_slice(&(len + (1 << 31)).to_be_bytes());
+        self.encoded.push(val);
+    }
+
+    fn push_non_run(&mut self) {
+        self.n_segs += 1;
+        self.encoded.extend_from_slice(&(self.non_run.len() as u32).to_be_bytes());
+        self.encoded.extend_from_slice(&self.non_run);
     }
 
     fn push(&mut self, byte: u8) {
@@ -82,38 +84,21 @@ impl RunEncoder {
 
     fn sync_segs(&mut self) {
         if self.non_run.len() > 0 {
-            self.encoded.push(RunSegment::NonRun(self.non_run.clone()));
+            self.push_non_run();
             self.non_run.clear();
         }
         if self.run.len() > 0 {
-            self.encoded.push(RunSegment::Run(self.run.len() as u32, self.run[0]));
+            self.push_run(self.run.len() as u32, self.run[0]);
             self.run.clear();
         }
     }
 
-    pub fn encode(mut self) -> RleEncoding {
+    pub fn serialize(mut self) -> Vec<u8> {
         self.flush();
-        RleEncoding { encoded: self.encoded, len: self.len }
-    }
-}
-
-impl RleEncoding {
-    pub fn serialize(&self) -> Vec<u8> {
-        let mut serialized = Vec::new();
+        let mut serialized = Vec::with_capacity(self.encoded.len() + 8);
         serialized.extend_from_slice(&(self.len as u32).to_be_bytes());
-        serialized.extend_from_slice(&(self.encoded.len() as u32).to_be_bytes());
-        for seg in &self.encoded {
-            match seg {
-                RunSegment::NonRun(bytes) => {
-                    serialized.extend_from_slice(&(bytes.len() as u32).to_be_bytes());
-                    serialized.extend_from_slice(&bytes);
-                },
-                RunSegment::Run(len, val) => {
-                    serialized.extend_from_slice(&(len + (1 << 31)).to_be_bytes());
-                    serialized.extend_from_slice(&val.to_be_bytes());
-                }
-            }
-        }
+        serialized.extend_from_slice(&(self.n_segs as u32).to_be_bytes());
+        serialized.extend_from_slice(&self.encoded);
         serialized
     }
 
@@ -148,36 +133,7 @@ impl RleEncoding {
         }
         Some(decoded)
     }
-
-    pub fn decode(&self, size: usize) -> Vec<u8> {
-        assert!(size >= self.len);
-        let mut decoded = vec![0; size];
-        let mut idx = 0;
-        for seg in &self.encoded {
-            match seg {
-                RunSegment::NonRun(vec) => {
-                    for j in 0..vec.len() {
-                        decoded[idx] = vec[j];
-                        idx += 1;
-                    }
-                },
-                RunSegment::Run(len, val) => {
-                    if *val == 0 {
-                        idx += *len as usize;
-                    } else {
-                        for _ in 0..(*len) {
-                            decoded[idx] = *val;
-                            idx += 1;
-                        }
-                    }
-                }
-            }
-        }
-        decoded
-    }
 }
-
-// const DUMP_THREADS: usize = 50;
 
 pub struct DiskDeque<T> {
     front: VecDeque<T>,
@@ -288,7 +244,7 @@ impl DiskMultiMap {
         let mut metadata: BTreeMap<String, (u32, u32)> = BTreeMap::new();
         let mut offset: u32 = 0;
         for (key, encoder) in cache {
-            let bytes = serialize(&encoder.encode()).unwrap();
+            let bytes = encoder.serialize();
             metadata.insert(key, (offset, bytes.len() as u32));
             data.extend_from_slice(&bytes);
             offset += bytes.len() as u32;
@@ -480,13 +436,12 @@ impl IndexShard {
         &self.term_counts
     }
 
-    pub fn get_postings(&mut self, term: &str) -> Option<RleEncoding> {
+    pub fn get_postings(&mut self, term: &str) -> Option<Vec<u8>> {
         let (offset, len) = self.headers.get(term)?;
         self.index.seek(SeekFrom::Start(*offset as u64)).ok()?;
         let mut bytes = vec![0; *len as usize];
         self.index.read_exact(&mut bytes).unwrap();
-        let postings: RleEncoding = deserialize(&bytes).ok()?;
-        Some(postings)
+        RunEncoder::deserialize(bytes)
     }
 
     pub fn open_meta(&self) -> Vec<UrlMeta> {
