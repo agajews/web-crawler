@@ -144,6 +144,8 @@ fn main() {
                 let res = shard.get_postings(term, SHARD_SIZE);
                 if let Some(res) = res {
                     count += res.len();
+                } else {
+                    println!("failed id: {}", shard_id);
                 }
             }
             // let postings = match get_scores(shard, &terms) {
