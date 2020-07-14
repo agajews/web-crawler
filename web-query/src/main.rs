@@ -42,31 +42,28 @@ fn main() {
     }
 
     let start = Instant::now();
-    for i in 0..100 {
-        let mut heap = BinaryHeap::new();
-        for i in 0..20 {
-            heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
-        }
-        println!("searching iter {}, time {:?}", i, start.elapsed());
-        for (shard_id, shard) in shards.iter_mut().enumerate() {
-            let postings = match shard.get_postings(query, 100000) {
-                Some(postings) => postings,
-                None => continue,
-            };
-            for (id, val) in postings.into_iter().enumerate() {
-                if val > heap.peek().unwrap().val {
-                    heap.pop();
-                    heap.push(QueryMatch { id, shard_id, val });
-                }
+    let mut heap = BinaryHeap::new();
+    for i in 0..20 {
+        heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
+    }
+    for (shard_id, shard) in shards.iter_mut().enumerate() {
+        let postings = match shard.get_postings(query, 100000) {
+            Some(postings) => postings,
+            None => continue,
+        };
+        for (id, val) in postings.into_iter().enumerate() {
+            if val > heap.peek().unwrap().val {
+                heap.pop();
+                heap.push(QueryMatch { id, shard_id, val });
             }
         }
     }
-    println!("time to search: {:?}", start.elapsed() / 100);
+    println!("time to search: {:?}", start.elapsed());
 
-    // let results = heap.into_vec();
-    // for result in results {
-    //     let shard = &shards[result.shard_id];
-    //     let meta = shard.open_meta();
-    //     println!("got url {}: {}, {}", meta[result.id].url, result.val, shard.term_counts()[result.id]);
-    // }
+    let results = heap.into_vec();
+    for result in results {
+        let shard = &mut shards[result.shard_id];
+        let url = shard.get_url(result.id).unwrap();
+        println!("got url {}: {}, {}", url, result.val, shard.term_counts()[result.id]);
+    }
 }
