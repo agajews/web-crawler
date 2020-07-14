@@ -106,7 +106,7 @@ fn main() {
     }
     println!("time to search: {:?}", start.elapsed());
 
-    let results = heap.into_vec();
+    let results = heap.into_sorted_vec();
     for result in results {
         let shard = &mut shards[result.shard_id];
         let url = shard.get_url(result.id).unwrap();
