@@ -33,8 +33,8 @@ fn get_scores(shard: &mut IndexShard, terms: &[String]) -> Option<Vec<u8>> {
         postings.push(shard.get_postings(term, SHARD_SIZE)?);
     }
     let mut idfs = postings.iter()
-        .map(|posting| (posting.iter().filter(|byte| **byte > 0).count() * (1 << 14)) / SHARD_SIZE)
-        .map(|idf| 16 - (idf as u16).leading_zeros() as u8 + 1)
+        .map(|posting| (posting.iter().filter(|byte| **byte > 0).count() * (1 << 18)) / SHARD_SIZE)
+        .map(|idf| 32 - (idf as u32).leading_zeros() as u8 + 1)
         .map(|log_idf| 1 << (log_idf / 2))
         .collect::<Vec<_>>();
     let min_idf = *idfs.iter().min().unwrap();
