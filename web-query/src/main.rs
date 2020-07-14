@@ -38,7 +38,7 @@ fn get_scores(shard: &mut IndexShard, terms: &[String]) -> Option<Vec<u8>> {
         .map(|log_idf| 1 << (log_idf / 2))
         .collect::<Vec<_>>();
     let min_idf = *idfs.iter().min().unwrap();
-    println!("idfs: {:?}", idfs);
+    // println!("idfs: {:?}", idfs);
     for i in 0..idfs.len() {
         idfs[i] /= min_idf;
     }
