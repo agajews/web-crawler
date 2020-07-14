@@ -59,10 +59,22 @@ fn compute_idfs(postings: &Vec<Vec<u8>>) -> Vec<u8> {
     idfs
 }
 
-fn divide_scores(posting: &mut [u8], idf: u8) {
+fn divide_scores(posting: &mut [u8], denominator: u8) {
     for i in (0..posting.len()).step_by(32) {
         let mut simd = u8x32::from_slice_unaligned(&posting[i..]);
-        simd /= idf;
+        simd /= denominator;
+    }
+}
+
+fn join_scores(scores: &mut [u8], posting: &mut [u8]) {
+    for j in 0..posting.len() {
+        if scores[j] > 0 {
+            if posting[j] > 0 {
+                scores[j] += posting[j];
+            } else {
+                scores[j] = 0;
+            }
+        }
     }
 }
 
@@ -104,6 +116,7 @@ fn get_scores(shard: &mut IndexShard, terms: &[String]) -> Option<Vec<u8>> {
 
 fn main() {
     let query = "robotics";
+    let query_b = "meta";
     // let terms = env::args().skip(1).collect::<Vec<_>>();
 
     let top_dir: PathBuf = env::var("CRAWLER_DIR").unwrap().into();
@@ -126,7 +139,8 @@ fn main() {
     for _ in 0..100 {
         for shard in &mut shards {
             let mut posting = shard.get_postings(query, SHARD_SIZE).unwrap();
-            divide_scores(&mut posting, 90);
+            let mut posting_b = shard.get_postings(query_b, SHARD_SIZE).unwrap();
+            join_scores(&mut posting, &mut posting_b);
         }
     }
     println!("time to compute: {:?}", start.elapsed() / 100);
