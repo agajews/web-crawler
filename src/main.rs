@@ -65,8 +65,8 @@ lazy_static! {
     static ref LINK_RE: Regex = Regex::new("href=['\"][^'\"]+['\"]").unwrap();
     static ref DISALLOW_RE: Regex = Regex::new(r"^Disallow: ([^\s]+)").unwrap();
 
-    static ref BODY_RE: Regex = Regex::new(r"(?s)<body[^<>]*>.*(</body>)?").unwrap();
-    static ref TAG_TEXT_RE: Regex = Regex::new(r"(<[^<>]+>)([^<>]+)").unwrap();
+    static ref BODY_RE: Regex = Regex::new(r"(?s)<body[^<>]*>.*(</body>|<script>)?").unwrap();
+    static ref TAG_TEXT_RE: Regex = Regex::new(r">([^<>]+)").unwrap();
     static ref TERM_RE: Regex = Regex::new(r"[a-zA-Z]+").unwrap();
 }
 
@@ -207,10 +207,7 @@ async fn index_document(url: &str, document: &str, state: &CrawlerState) -> Opti
     let body = state.body_re.find(document)?.as_str();
     // println!("body: {}", body);
     for tag_text in state.tag_text_re.captures_iter(body) {
-        if tag_text[1].starts_with("<script") {
-            continue;
-        }
-        for term in state.term_re.find_iter(&tag_text[2]) {
+        for term in state.term_re.find_iter(&tag_text[1]) {
             let term = term.as_str().to_lowercase();
             // println!("{}", term);
             let count = match terms.get(&term) {

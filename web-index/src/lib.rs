@@ -102,10 +102,11 @@ impl RunEncoder {
         serialized
     }
 
-    pub fn deserialize(serialized: Vec<u8>) -> Option<Vec<u8>> {
+    pub fn deserialize(serialized: Vec<u8>, size: usize) -> Option<Vec<u8>> {
         let len = u32::from_be_bytes(serialized[0..4].try_into().ok()?) as usize;
+        assert!(size >= len);
         let n_segs = u32::from_be_bytes(serialized[4..8].try_into().ok()?);
-        let mut decoded = vec![0; len];
+        let mut decoded = vec![0; size];
         let mut i = 8;
         let mut k = 0;
         for _ in 0..n_segs {
@@ -436,12 +437,12 @@ impl IndexShard {
         &self.term_counts
     }
 
-    pub fn get_postings(&mut self, term: &str) -> Option<Vec<u8>> {
+    pub fn get_postings(&mut self, term: &str, size: usize) -> Option<Vec<u8>> {
         let (offset, len) = self.headers.get(term)?;
         self.index.seek(SeekFrom::Start(*offset as u64)).ok()?;
         let mut bytes = vec![0; *len as usize];
         self.index.read_exact(&mut bytes).unwrap();
-        RunEncoder::deserialize(bytes)
+        RunEncoder::deserialize(bytes, size)
     }
 
     pub fn open_meta(&self) -> Vec<UrlMeta> {
