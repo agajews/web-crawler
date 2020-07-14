@@ -92,30 +92,32 @@ fn main() {
     }
     println!("finished opening {} shards", shards.len());
 
-    let start = Instant::now();
-    let mut heap = BinaryHeap::new();
-    for i in 0..20 {
-        heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
-    }
-    for (shard_id, shard) in shards.iter_mut().enumerate() {
-        let postings = match get_scores(shard, &terms) {
-            Some(postings) => postings,
-            None => continue,
-        };
-        let term_counts = shard.term_counts();
-        for (id, val) in postings.into_iter().enumerate() {
-            if val > heap.peek().unwrap().val && term_counts[id] >= 8 {
-                heap.pop();
-                heap.push(QueryMatch { id, shard_id, val });
+    for _ in 0..100 {
+        let start = Instant::now();
+        let mut heap = BinaryHeap::new();
+        for i in 0..20 {
+            heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
+        }
+        for (shard_id, shard) in shards.iter_mut().enumerate() {
+            let postings = match get_scores(shard, &terms) {
+                Some(postings) => postings,
+                None => continue,
+            };
+            let term_counts = shard.term_counts();
+            for (id, val) in postings.into_iter().enumerate() {
+                if val > heap.peek().unwrap().val && term_counts[id] >= 8 {
+                    heap.pop();
+                    heap.push(QueryMatch { id, shard_id, val });
+                }
             }
         }
+        println!("time to search: {:?}", start.elapsed());
     }
-    println!("time to search: {:?}", start.elapsed());
 
-    let results = heap.into_sorted_vec();
-    for result in results {
-        let shard = &mut shards[result.shard_id];
-        let url = shard.get_url(result.id).unwrap();
-        println!("got url {}: {}, {}", url, result.val, shard.term_counts()[result.id]);
-    }
+    // let results = heap.into_sorted_vec();
+    // for result in results {
+    //     let shard = &mut shards[result.shard_id];
+    //     let url = shard.get_url(result.id).unwrap();
+    //     println!("got url {}: {}, {}", url, result.val, shard.term_counts()[result.id]);
+    // }
 }
