@@ -133,6 +133,7 @@ fn main() {
     println!("finished opening {} shards", shards.len());
 
     let start = Instant::now();
+    let mut count = 0;
     for _ in 0..10 {
         let mut heap = BinaryHeap::new();
         for i in 0..20 {
@@ -140,7 +141,10 @@ fn main() {
         }
         for (shard_id, shard) in shards.iter_mut().enumerate() {
             for term in &terms {
-                let _res = shard.get_postings(term, SHARD_SIZE);
+                let res = shard.get_postings(term, SHARD_SIZE);
+                if let Some(res) = res {
+                    count += res.len();
+                }
             }
             // let postings = match get_scores(shard, &terms) {
             //     Some(postings) => postings,
@@ -156,6 +160,7 @@ fn main() {
         }
     }
     println!("time to search: {:?}", start.elapsed() / 10);
+    println!("count: {}", count);
 
     // let results = heap.into_sorted_vec();
     // for result in results {
