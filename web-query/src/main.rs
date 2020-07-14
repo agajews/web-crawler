@@ -74,6 +74,7 @@ fn join_scores(scores: &mut [u8], posting: &[u8]) {
         let posting_simd = u8x32::from_slice_unaligned(&posting[i..]);
         score_simd *= u8x32::from_cast(posting_simd.ne(zero));
         score_simd += u8x32::from_cast(score_simd.ne(zero)) * posting_simd;
+        score_simd.write_to_slice_unaligned(&mut scores[i..]);
     }
 }
 
