@@ -1,5 +1,5 @@
 use bincode::{serialize, deserialize};
-use serde::{Serialize, Deserialize};
+use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::path::{Path, PathBuf};
 use std::fs;
@@ -11,7 +11,7 @@ use tokio::prelude::*;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use std::io::prelude::*;
-use std::io::SeekFrom;
+// use std::io::SeekFrom;
 use std::convert::TryInto;
 use fasthash::metro::hash64;
 
@@ -275,47 +275,65 @@ async fn sync_write<P: AsRef<Path>>(path: P, bytes: &[u8]) {
     file.sync_all().await.unwrap();
 }
 
-pub struct DiskMap<V> {
+pub struct DiskMeta {
     dir: PathBuf,
-    cache: Vec<V>,
+    urls: Vec<String>,
+    term_counts: Vec<u8>,
     db_count: usize,
     capacity: usize,
 }
 
-impl<V: Serialize + DeserializeOwned + Send + 'static> DiskMap<V> {
+impl DiskMeta {
     pub fn new<P: Into<PathBuf>>(dir: P, capacity: usize) -> Self {
         let dir = dir.into();
         fs::create_dir_all(&dir).unwrap();
-        DiskMap {
+        Self {
             dir,
             capacity,
-            cache: Vec::with_capacity(capacity),
+            urls: Vec::with_capacity(capacity),
+            term_counts: Vec::with_capacity(capacity),
             db_count: 0,
         }
     }
 
-    pub fn push(&mut self, value: V) {
-        self.cache.push(value);
+    pub fn push(&mut self, url: String, n_terms: u8) {
+        self.urls.push(url);
+        self.term_counts.push(n_terms);
     }
 
     pub fn dump(&mut self) {
-        let mut cache = Vec::with_capacity(self.capacity);
-        std::mem::swap(&mut self.cache, &mut cache);
-        let path = self.db_path(self.db_count);
+        let mut urls = Vec::with_capacity(self.capacity);
+        let mut term_counts = Vec::with_capacity(self.capacity);
+        std::mem::swap(&mut self.urls, &mut urls);
+        std::mem::swap(&mut self.term_counts, &mut term_counts);
+        let url_path = self.dir.join(format!("urls{}", self.db_count));
+        let term_path = self.dir.join(format!("terms{}", self.db_count));
         self.db_count += 1;
-        thread::spawn(move || Self::dump_cache(cache, path));
+        thread::spawn(move || {
+            Self::dump_urls(url_path, urls);
+            Self::write_and_sync(term_path, term_counts);
+        });
     }
 
-    fn db_path(&self, idx: usize) -> PathBuf {
-        self.dir.join(format!("db{}", idx))
+    fn dump_urls(url_path: PathBuf, urls: Vec<String>) {
+        let mut encoded = Vec::new();
+        encoded.extend_from_slice(&(urls.len() as u32).to_be_bytes());
+        let mut i: u32 = 0;
+        for url in &urls {
+            encoded.extend_from_slice(&i.to_be_bytes());
+            encoded.extend_from_slice(&(url.len() as u32).to_be_bytes());
+            i += url.len() as u32;
+        }
+        for url in urls {
+            encoded.extend_from_slice(url.as_bytes());
+        }
+        Self::write_and_sync(url_path, encoded);
     }
 
-    fn dump_cache(cache: Vec<V>, path: PathBuf) {
-        // println!("writing to disk: {:?}", path);
+    fn write_and_sync(path: PathBuf, bytes: Vec<u8>) {
         let mut file = fs::File::create(&path).unwrap();
-        file.write_all(&serialize(&cache).unwrap()).unwrap();
+        file.write_all(&bytes).unwrap();
         file.sync_all().unwrap();
-        // println!("finished writing to {:?}", path);
     }
 }
 
@@ -375,90 +393,78 @@ impl<T: Serialize + DeserializeOwned> TaskHandler<T> {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Posting {
-    pub url_id: u32,
-    pub count: u32,
-}
+// pub struct IndexShard {
+//     index: fs::File,
+//     headers: BTreeMap<String, (u32, u32)>,
+//     meta_path: PathBuf,
+//     term_counts: Vec<u8>,
+//     core: String,
+//     idx: usize,
+// }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct UrlMeta {
-    pub url: String,
-    pub n_terms: u8,
-}
+// #[derive(Serialize, Deserialize, Debug)]
+// pub struct IndexHeader {
+//     headers: BTreeMap<String, (u32, u32)>,
+//     term_counts: Vec<u8>,
+//     core: String,
+//     idx: usize,
+// }
 
-pub struct IndexShard {
-    index: fs::File,
-    headers: BTreeMap<String, (u32, u32)>,
-    meta_path: PathBuf,
-    term_counts: Vec<u8>,
-    core: String,
-    idx: usize,
-}
+// impl IndexShard {
+//     pub fn open<P: Into<PathBuf>, Q: Into<PathBuf>>(index_dir: P, meta_dir: Q, core: String, idx: usize) -> Option<IndexShard> {
+//         let index_dir = index_dir.into().join(&core).join(format!("db{}", idx));
+//         let meta_path = meta_dir.into().join(&core).join(format!("db{}", idx));
+//         let headers = deserialize(&fs::read(index_dir.join("metadata")).ok()?).ok()?;
+//         let index = fs::File::open(index_dir.join("data")).ok()?;
+//         let meta: Vec<UrlMeta> = deserialize(&fs::read(&meta_path).ok()?).ok()?;
+//         let term_counts = meta.iter().map(|url_meta| url_meta.n_terms).collect::<Vec<_>>();
+//         Some(Self { index, headers, meta_path, term_counts, core, idx })
+//     }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct IndexHeader {
-    headers: BTreeMap<String, (u32, u32)>,
-    term_counts: Vec<u8>,
-    core: String,
-    idx: usize,
-}
+//     pub fn find_idxs<P: AsRef<Path>>(index_dir: P) -> Vec<(String, usize)> {
+//         let mut idxs = Vec::new();
+//         let index_dir = index_dir.as_ref();
+//         for core_entry in fs::read_dir(&index_dir).unwrap() {
+//             for db_entry in fs::read_dir(core_entry.unwrap().path()).unwrap() {
+//                 let path = db_entry.unwrap().path();
+//                 let filename = path.file_name().unwrap().to_str().unwrap();
+//                 let idx = filename[2..].parse::<usize>().unwrap();
+//                 let parent = String::from(path.parent().unwrap().file_name().unwrap().to_str().unwrap());
+//                 idxs.push((parent, idx));
+//             }
+//         }
+//         idxs
+//     }
 
-impl IndexShard {
-    pub fn open<P: Into<PathBuf>, Q: Into<PathBuf>>(index_dir: P, meta_dir: Q, core: String, idx: usize) -> Option<IndexShard> {
-        let index_dir = index_dir.into().join(&core).join(format!("db{}", idx));
-        let meta_path = meta_dir.into().join(&core).join(format!("db{}", idx));
-        let headers = deserialize(&fs::read(index_dir.join("metadata")).ok()?).ok()?;
-        let index = fs::File::open(index_dir.join("data")).ok()?;
-        let meta: Vec<UrlMeta> = deserialize(&fs::read(&meta_path).ok()?).ok()?;
-        let term_counts = meta.iter().map(|url_meta| url_meta.n_terms).collect::<Vec<_>>();
-        Some(Self { index, headers, meta_path, term_counts, core, idx })
-    }
+//     pub fn into_header(self) -> IndexHeader {
+//         IndexHeader { headers: self.headers, term_counts: self.term_counts, core: self.core, idx: self.idx }
+//     }
 
-    pub fn find_idxs<P: AsRef<Path>>(index_dir: P) -> Vec<(String, usize)> {
-        let mut idxs = Vec::new();
-        let index_dir = index_dir.as_ref();
-        for core_entry in fs::read_dir(&index_dir).unwrap() {
-            for db_entry in fs::read_dir(core_entry.unwrap().path()).unwrap() {
-                let path = db_entry.unwrap().path();
-                let filename = path.file_name().unwrap().to_str().unwrap();
-                let idx = filename[2..].parse::<usize>().unwrap();
-                let parent = String::from(path.parent().unwrap().file_name().unwrap().to_str().unwrap());
-                idxs.push((parent, idx));
-            }
-        }
-        idxs
-    }
+//     pub fn from_header<P: Into<PathBuf>, Q: Into<PathBuf>>(header: IndexHeader, index_dir: P, meta_dir: Q) -> IndexShard {
+//         let IndexHeader { headers, term_counts, core, idx } = header;
+//         let index_dir = index_dir.into().join(&core).join(format!("db{}", idx));
+//         let meta_path = meta_dir.into().join(&core).join(format!("db{}", idx));
+//         let index = fs::File::open(index_dir.join("data")).unwrap();
+//         Self { index, headers, meta_path, term_counts, core, idx }
+//     }
 
-    pub fn into_header(self) -> IndexHeader {
-        IndexHeader { headers: self.headers, term_counts: self.term_counts, core: self.core, idx: self.idx }
-    }
+//     pub fn num_terms(&self) -> usize {
+//         self.headers.len()
+//     }
 
-    pub fn from_header<P: Into<PathBuf>, Q: Into<PathBuf>>(header: IndexHeader, index_dir: P, meta_dir: Q) -> IndexShard {
-        let IndexHeader { headers, term_counts, core, idx } = header;
-        let index_dir = index_dir.into().join(&core).join(format!("db{}", idx));
-        let meta_path = meta_dir.into().join(&core).join(format!("db{}", idx));
-        let index = fs::File::open(index_dir.join("data")).unwrap();
-        Self { index, headers, meta_path, term_counts, core, idx }
-    }
+//     pub fn term_counts(&self) -> &[u8] {
+//         &self.term_counts
+//     }
 
-    pub fn num_terms(&self) -> usize {
-        self.headers.len()
-    }
+//     pub fn get_postings(&mut self, term: &str, size: usize) -> Option<Vec<u8>> {
+//         let (offset, len) = self.headers.get(term)?;
+//         self.index.seek(SeekFrom::Start(*offset as u64)).ok()?;
+//         let mut bytes = vec![0; *len as usize];
+//         self.index.read_exact(&mut bytes).unwrap();
+//         RunEncoder::deserialize(bytes, size)
+//     }
 
-    pub fn term_counts(&self) -> &[u8] {
-        &self.term_counts
-    }
-
-    pub fn get_postings(&mut self, term: &str, size: usize) -> Option<Vec<u8>> {
-        let (offset, len) = self.headers.get(term)?;
-        self.index.seek(SeekFrom::Start(*offset as u64)).ok()?;
-        let mut bytes = vec![0; *len as usize];
-        self.index.read_exact(&mut bytes).unwrap();
-        RunEncoder::deserialize(bytes, size)
-    }
-
-    pub fn open_meta(&self) -> Vec<UrlMeta> {
-        deserialize(&fs::read(&self.meta_path).unwrap()).unwrap()
-    }
-}
+//     pub fn open_meta(&self) -> Vec<UrlMeta> {
+//         deserialize(&fs::read(&self.meta_path).unwrap()).unwrap()
+//     }
+// }

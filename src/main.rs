@@ -15,7 +15,7 @@ use regex::Regex;
 // use uuid::Uuid;
 use std::path::PathBuf;
 use core::sync::atomic::{AtomicUsize, Ordering};
-use web_index::{DiskMap, DiskMultiMap, TaskPool, TaskHandler, UrlMeta};
+use web_index::{DiskMeta, DiskMultiMap, TaskPool, TaskHandler};
 use std::time::{Instant, Duration};
 use cbloom;
 use fasthash::metro::hash64;
@@ -229,10 +229,7 @@ async fn index_document(url: &str, document: &str, state: &CrawlerState) -> Opti
         let factor = std::cmp::min((count * 2550) / n_terms, 255) as u8;
         index.add(String::from(term), id, factor);
     }
-    meta.push(UrlMeta {
-        url: String::from(url),
-        n_terms: (n_terms as f32).log2() as u8,
-    });
+    meta.push(String::from(url), (n_terms as f32).log2() as u8);
 
     if id + 1 == INDEX_CAP {
         *url_count = 0;
@@ -378,7 +375,7 @@ struct CrawlerState {
     tag_text_re: Regex,
     term_re: Regex,
     index: Mutex<DiskMultiMap>,
-    meta: Mutex<DiskMap<UrlMeta>>,
+    meta: Mutex<DiskMeta>,
 }
 
 fn crawler_core(
@@ -406,7 +403,7 @@ fn crawler_core(
     let index_dir = index_dir.join(format!("core{}", coreid.id));
     let meta_dir = meta_dir.join(format!("core{}", coreid.id));
     let index = Mutex::new(DiskMultiMap::new(index_dir));
-    let meta = Mutex::new(DiskMap::new(meta_dir, INDEX_CAP));
+    let meta = Mutex::new(DiskMeta::new(meta_dir, INDEX_CAP));
     let url_count = Mutex::new(0);
 
     let mut rt = runtime::Builder::new()
