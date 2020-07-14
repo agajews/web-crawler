@@ -12,3 +12,4 @@ bincode = "1.2.1"
 rand = "0.7.3"
 tokio = { version = "0.2", features = ["macros", "rt-core", "time", "io-driver", "fs", "sync"] }
 fasthash = "0.4.0"
+packed_simd = "0.3.3"

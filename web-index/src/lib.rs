@@ -14,6 +14,7 @@ use std::io::prelude::*;
 use std::io::SeekFrom;
 use std::convert::TryInto;
 use fasthash::metro::hash64;
+use packed_simd::*;
 
 pub struct RunEncoder {
     len: usize,
@@ -110,8 +111,9 @@ impl RunEncoder {
     }
 
     fn assign_non_run(slice: &mut [u8], source: &[u8]) {
-        for j in 0..(slice.len()) {
-            slice[j] = source[j];
+        for i in (0..(slice.len())).step_by(32) {
+            let simd = u8x32::from_slice_unaligned(&source[i..]);
+            simd.write_to_slice_unaligned(&mut slice[i..]);
         }
     }
 

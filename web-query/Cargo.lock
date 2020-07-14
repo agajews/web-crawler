@@ -472,6 +472,7 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "fasthash",
+ "packed_simd",
  "rand 0.7.3",
  "serde",
  "tokio",
