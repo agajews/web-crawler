@@ -104,15 +104,15 @@ impl RunEncoder {
         serialized
     }
 
-    fn assign_run(slice: &mut [u8], val: u8) {
-        for k in 0..(slice.len()) {
-            slice[k] = val;
-        }
-    }
+    // fn assign_run(slice: &mut [u8], val: u8) {
+    //     for k in 0..(slice.len()) {
+    //         slice[k] = val;
+    //     }
+    // }
 
-    fn assign_non_run(slice: &mut [u8], source: &[u8]) {
-        slice.copy_from_slice(&source);
-    }
+    // fn assign_non_run(slice: &mut [u8], source: &[u8]) {
+    //     slice.copy_from_slice(&source);
+    // }
 
     pub fn deserialize(serialized: Vec<u8>, size: usize) -> Option<Vec<u8>> {
         let len = u32::from_be_bytes(serialized[0..4].try_into().ok()?) as usize;
@@ -122,25 +122,26 @@ impl RunEncoder {
         let mut i = 8;
         let mut k = 0;
         for _ in 0..n_segs {
-            let seg_len = u32::from_be_bytes(serialized[i..(i + 4)].try_into().ok()?) as usize;
+            let seg_len = u32::from_be_bytes(serialized[i..(i + 4)].try_into().ok()?);
             i += 4;
             if seg_len >= (1 << 31) {
                 let run_len = seg_len - (1 << 31);
                 let val = *serialized.get(i)?;
                 if val == 0 {
-                    k += run_len;
+                    k += run_len as usize;
                 } else {
-                    Self::assign_run(&mut decoded[k..(k + run_len)], val);
-                    k += run_len;
+                    for _ in 0..run_len {
+                        decoded[k] = val;
+                        k += 1;
+                    }
                 }
                 i += 1;
             } else {
-                if i + seg_len >= serialized.len() {
-                    return None;
+                for j in 0..(seg_len as usize) {
+                    decoded[k] = *serialized.get(i + j)?;
+                    k += 1;
                 }
-                Self::assign_non_run(&mut decoded[k..(k + seg_len)], &serialized[i..(i + seg_len)]);
-                k += seg_len;
-                i += seg_len;
+                i += seg_len as usize;
             }
         }
         Some(decoded)
