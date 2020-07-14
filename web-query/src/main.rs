@@ -4,6 +4,8 @@ use std::env;
 use std::collections::BinaryHeap;
 use std::time::Instant;
 
+const SHARD_SIZE: usize = 100000;
+
 #[derive(Eq, PartialEq)]
 struct QueryMatch {
     id: usize,
@@ -25,10 +27,33 @@ impl PartialOrd for QueryMatch {
 }
 
 
+fn get_scores(shard: &mut IndexShard, terms: &[String]) -> Option<Vec<u8>> {
+    let mut postings = Vec::with_capacity(terms.len());
+    for term in terms {
+        postings.push(shard.get_postings(term, SHARD_SIZE)?);
+    }
+    let idfs = postings.iter()
+        .map(|posting| posting.iter().filter(|byte| **byte > 0).count() as u32)
+        .collect::<Vec<_>>();
+    for i in 0..postings.len() {
+        let posting = &mut postings[i];
+        let idf = idfs[i];
+        for j in 0..posting.len() {
+            posting[j] /= 32 - idf.leading_zeros() as u8;
+        }
+    }
+    let mut scores = postings.pop().unwrap();
+    for posting in postings {
+        for j in 0..posting.len() {
+            scores[j] += posting[j];
+        }
+    }
+    Some(scores)
+}
+
 fn main() {
     // let query = "robotics";
-    let args = env::args().collect::<Vec<_>>();
-    let query = &args[1];
+    let terms = env::args().collect::<Vec<_>>();
 
     let top_dir: PathBuf = env::var("CRAWLER_DIR").unwrap().into();
     let index_dir = top_dir.join("index");
@@ -37,7 +62,9 @@ fn main() {
     let idxs = IndexShard::find_idxs(&index_dir);
     let mut shards = Vec::with_capacity(idxs.len());
     for (core, idx) in idxs {
-        println!("opening shard {}:{}", core, idx);
+        if idx == 0 {
+            println!("opening shard {}:{}", core, idx);
+        }
         if let Some(shard) = IndexShard::open(&index_dir, &meta_dir, core, idx) {
             shards.push(shard);
         }
@@ -50,7 +77,7 @@ fn main() {
         heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
     }
     for (shard_id, shard) in shards.iter_mut().enumerate() {
-        let postings = match shard.get_postings(query, 100000) {
+        let postings = match get_scores(shard, &terms) {
             Some(postings) => postings,
             None => continue,
         };
