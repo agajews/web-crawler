@@ -66,23 +66,18 @@ fn divide_scores(posting: &mut [u8], denominator: u8) {
     }
 }
 
-fn join_scores(scores: &mut [u8], posting: &mut [u8]) {
-    // for j in 0..posting.len() {
-    //     if scores[j] > 0 {
-    //         if posting[j] > 0 {
-    //             scores[j] += posting[j];
-    //         } else {
-    //             scores[j] = 0;
-    //         }
-    //     }
-    // }
+fn join_scores(scores: &mut [u8], posting: &[u8]) {
     let zero = u8x32::splat(0);
     for i in (0..posting.len()).step_by(32) {
         let mut score_simd = u8x32::from_slice_unaligned(&scores[i..]);
-        let mut posting_simd = u8x32::from_slice_unaligned(&posting[i..]);
+        let posting_simd = u8x32::from_slice_unaligned(&posting[i..]);
         score_simd *= u8x32::from_cast(posting_simd.ne(zero));
         score_simd += u8x32::from_cast(score_simd.ne(zero)) * posting_simd;
     }
+}
+
+fn compute_max(scores: &[u8]) -> u8 {
+    *scores.iter().max().unwrap()
 }
 
 fn get_scores(shard: &mut IndexShard, terms: &[String]) -> Option<Vec<u8>> {
@@ -92,31 +87,19 @@ fn get_scores(shard: &mut IndexShard, terms: &[String]) -> Option<Vec<u8>> {
     }
     let idfs = compute_idfs(&postings);
     for i in 0..postings.len() {
-        let posting = &mut postings[i];
-        let idf = idfs[i];
-        for j in 0..posting.len() {
-            posting[j] /= idf;
-        }
+        divide_scores(&mut postings[i], idfs[i]);
     }
     let maxs = postings.iter()
-        .map(|posting| *posting.iter().max().unwrap() as u32)
+        .map(|posting| compute_max(&posting) as u32)
         .collect::<Vec<_>>();
     let total_max = maxs.iter().sum::<u32>();
     let denominator = (total_max / 255 + 1) as u8;
-    let mut scores = postings.pop().unwrap();
-    for j in 0..scores.len() {
-        scores[j] /= denominator;
+    for i in 0..postings.len() {
+        divide_scores(&mut postings[i], denominator);
     }
+    let mut scores = postings.pop().unwrap();
     for posting in postings {
-        for j in 0..posting.len() {
-            if scores[j] > 0 {
-                if posting[j] > 0 {
-                    scores[j] += posting[j] / denominator;
-                } else {
-                    scores[j] = 0;
-                }
-            }
-        }
+        join_scores(&mut scores, &posting);
     }
     Some(scores)
 }
@@ -146,8 +129,7 @@ fn main() {
     for _ in 0..100 {
         for shard in &mut shards {
             let mut posting = shard.get_postings(query, SHARD_SIZE).unwrap();
-            let mut posting_b = shard.get_postings(query_b, SHARD_SIZE).unwrap();
-            join_scores(&mut posting, &mut posting_b);
+            compute_max(&posting);
         }
     }
     println!("time to compute: {:?}", start.elapsed() / 100);
