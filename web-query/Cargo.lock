@@ -238,6 +238,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "packed_simd"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a85ea9fc0d4ac0deb6fe7911d38786b32fc11119afd9e9d38b84ff691ce64220"
+dependencies = [
+ "cfg-if",
+]
+
+[[package]]
 name = "pin-project-lite"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -473,6 +482,7 @@ name = "web-query"
 version = "0.1.0"
 dependencies = [
  "bincode",
+ "packed_simd",
  "tokio",
  "web-index",
 ]
