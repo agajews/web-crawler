@@ -70,7 +70,7 @@ fn divide_scores(posting: &mut [u8], denominator: u8) {
 
 fn join_scores(scores: &mut [u8], postings: Vec<Vec<u8>>, mut idfs: Vec<u8>, denominator: u8, term_counts: &[u8], shard_id: usize, heap: &mut BinaryHeap<QueryMatch>) {
     let zero = u8x32::splat(0);
-    let score_idf = idfs.pop().unwrap();
+    let score_idf = idfs.pop().unwrap() * denominator;
     for i in (0..scores.len()).step_by(32) {
         let mut score_simd = u8x32::from_slice_unaligned(&scores[i..]);
         score_simd /= score_idf;
