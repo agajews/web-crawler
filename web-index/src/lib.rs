@@ -14,7 +14,6 @@ use std::io::prelude::*;
 use std::io::SeekFrom;
 use std::convert::TryInto;
 use fasthash::metro::hash64;
-use packed_simd::*;
 
 pub struct RunEncoder {
     len: usize,
@@ -111,7 +110,6 @@ impl RunEncoder {
         let mut decoded = vec![0; size];
         let mut i = 8;
         let mut k = 0;
-        let mut scratch = u8x32::splat(0);
         for _ in 0..n_segs {
             let seg_len = u32::from_be_bytes(serialized[i..(i + 4)].try_into().ok()?) as usize;
             i += 4;
@@ -119,20 +117,11 @@ impl RunEncoder {
                 let run_len = seg_len - (1 << 31);
                 let val = *serialized.get(i)?;
                 if val == 0 {
-                    if (k % 32) + run_len >= 32 {
-                        scratch.write_to_slice_unaligned(&mut decoded[(k - (k % 32))..]);
-                        scratch = u8x32::splat(0);
-                    }
                     k += run_len as usize;
                 } else {
                     for _ in 0..run_len {
-                        scratch = scratch.replace(k % 32, val);
-                        // decoded[k] = val;
+                        decoded[k] = val;
                         k += 1;
-                        if k % 32 == 0 {
-                            scratch.write_to_slice_unaligned(&mut decoded[(k - 32)..]);
-                            scratch = u8x32::splat(0);
-                        }
                     }
                 }
                 i += 1;
@@ -140,15 +129,13 @@ impl RunEncoder {
                 if i + seg_len > serialized.len() {
                     return None;
                 }
-                for _ in 0..seg_len {
-                    scratch = scratch.replace(k % 32, serialized[i]);
-                    k += 1;
-                    i += 1;
-                    if k % 32 == 0 {
-                        scratch.write_to_slice_unaligned(&mut decoded[(k - 32)..]);
-                        scratch = u8x32::splat(0);
-                    }
-                }
+                decoded[k..(k + seg_len)].copy_from_slice(&serialized[i..(i + seg_len)]);
+                // for j in 0..(seg_len as usize) {
+                //     decoded[k] = *serialized.get(i + j)?;
+                //     k += 1;
+                // }
+                i += seg_len;
+                k += seg_len;
             }
         }
         Some(decoded)
