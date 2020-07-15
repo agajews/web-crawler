@@ -52,20 +52,12 @@ fn compute_idfs(postings: &Vec<Vec<u8>>) -> Vec<u8> {
             let end = std::cmp::min(i + 32 * 128, posting.len());
             total_count += count_nonzero(&posting[i..end]);
         }
-        // let total_count = posting.iter().filter(|byte| **byte > 0).count() as u32;
         let normalized_count = total_count * (1 << 16) / SHARD_SIZE as u32;
         let log_idf = 32 - normalized_count.leading_zeros();
         let idf = 1 << (log_idf / 2);
         idfs.push(idf);
     }
     idfs
-
-    // let idfs = postings.iter()
-    //     .map(|posting| (posting.iter().filter(|byte| **byte > 0).count() * (1 << 15)) / SHARD_SIZE)
-    //     .map(|idf| 32 - (idf as u32).leading_zeros())
-    //     .map(|log_idf| 1 << (log_idf / 2))
-    //     .collect::<Vec<_>>();
-    // idfs
 }
 
 fn divide_scores(posting: &mut [u8], denominator: u8) {
@@ -101,18 +93,18 @@ fn join_scores(scores: &mut [u8], posting: &[u8]) {
 }
 
 fn compute_max(scores: &[u8]) -> u8 {
-    // let mut maxs = u8x32::splat(0);
-    // for i in (0..scores.len()).step_by(32) {
-    //     let simd = u8x32::from_slice_unaligned(&scores[i..]);
-    //     maxs = maxs.max(simd);
-    // }
-    // let mut max = 0;
-    // for i in 0..32 {
-    //     max = std::cmp::max(max, maxs.extract(i));
-    // }
-    // max
+    let mut maxs = u8x32::splat(0);
+    for i in (0..scores.len()).step_by(32) {
+        let simd = u8x32::from_slice_unaligned(&scores[i..]);
+        maxs = maxs.max(simd);
+    }
+    let mut max = 0;
+    for i in 0..32 {
+        max = std::cmp::max(max, maxs.extract(i));
+    }
+    max
 
-    *scores.iter().max().unwrap()
+    // *scores.iter().max().unwrap()
 }
 
 fn get_scores(shard: &mut IndexShard, terms: &[String]) -> Option<Vec<u8>> {
