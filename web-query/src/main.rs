@@ -29,18 +29,20 @@ impl PartialOrd for QueryMatch {
 
 
 fn count_nonzero(slice: &[u8]) -> u32 {
-    slice.iter().filter(|byte| **byte > 0).count() as u32
-    // let zero = u8x32::splat(0);
-    // let mut count = u8x32::splat(0);
-    // for i in (0..(slice.len())).step_by(32) {
-    //     let simd = u8x32::from_slice_unaligned(&slice[i..]);
-    //     count += u8x32::from_cast(simd.ne(zero));
-    // }
-    // let mut total_count: u32 = 0;
-    // for i in 0..32 {
-    //     total_count += count.extract(i) as u32;
-    // }
-    // total_count
+    // slice.iter().filter(|byte| **byte > 0).count() as u32
+    let zero = u8x32::splat(0);
+    let mut count = u8x32::splat(0);
+    for i in (0..(slice.len())).step_by(32) {
+        let simd = u8x32::from_slice_unaligned(&slice[i..]);
+        let vec = u8x32::from_cast(simd.ne(zero));
+        count += vec;
+        println!("extracted: {}", vec.extract(0));
+    }
+    let mut total_count: u32 = 0;
+    for i in 0..32 {
+        total_count += count.extract(i) as u32;
+    }
+    total_count
 }
 
 
