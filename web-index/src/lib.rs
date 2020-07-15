@@ -408,11 +408,29 @@ impl IndexShard {
     pub fn open<P: Into<PathBuf>, Q: Into<PathBuf>>(index_dir: P, meta_dir: Q, core: String, idx: usize) -> Option<IndexShard> {
         let index_dir = index_dir.into().join(&core).join(format!("db{}", idx));
         let meta_path = meta_dir.into().join(&core).join(format!("db{}", idx));
-        let index_headers = Self::deserialize_index_headers(&fs::read(index_dir.join("metadata")).ok()?)?;
-        let index = fs::File::open(index_dir.join("data")).ok()?;
-        let mut urls = fs::File::open(&meta_path.join("urls")).ok()?;
-        let (n_urls, url_headers) = Self::deserialize_url_headers(&mut urls)?;
-        let term_counts = fs::read(&meta_path.join("terms")).ok()?;
+        let index_headers = match fs::read(index_dir.join("metadata")).ok() {
+            Some(bytes) => match Self::deserialize_index_headers(&bytes) {
+                Some(headers) => headers,
+                None => { println!("failed to deserialize headers for {}:{}", core, idx); return None; },
+            },
+            None => { println!("failed to read headers for {}:{}", core, idx); return None; },
+        };
+        let index = match fs::File::open(index_dir.join("data")).ok() {
+            Some(file) => file,
+            None => { println!("failed to read index for {}:{}", core, idx); return None; },
+        };
+        let mut urls = match fs::File::open(&meta_path.join("urls")).ok() {
+            Some(file) => file,
+            None => { println!("failed to read urls for {}:{}", core, idx); return None; },
+        };
+        let (n_urls, url_headers) = match Self::deserialize_url_headers(&mut urls) {
+            Some(headers) => headers,
+            None => { println!("failed to deserialize url headers for {}:{}", core, idx); return None; },
+        };
+        let term_counts = match fs::read(&meta_path.join("terms")).ok() {
+            Some(terms) => terms,
+            None => { println!("failed to read term counts for {}:{}", core, idx); return None; },
+        };
         Some(Self { index, index_headers, urls, n_urls, url_headers, term_counts })
     }
 
