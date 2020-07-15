@@ -142,12 +142,12 @@ impl RunEncoder {
                 }
                 for _ in 0..seg_len {
                     scratch = scratch.replace(k % 32, serialized[i]);
+                    k += 1;
+                    i += 1;
                     if k % 32 == 0 {
                         scratch.write_to_slice_unaligned(&mut decoded[(k - 32)..]);
                         scratch = u8x32::splat(0);
                     }
-                    k += 1;
-                    i += 1;
                 }
             }
         }
