@@ -73,10 +73,10 @@ fn join_scores(scores: &mut [u8], postings: Vec<Vec<u8>>, mut denominators: Vec<
     let score_denominator = denominators.pop().unwrap();
     for i in (0..scores.len()).step_by(32) {
         let mut score_simd = u8x32::from_slice_unaligned(&scores[i..]);
-        score_simd /= score_denominator;
+        score_simd = score_simd / score_denominator;
         for (posting, denominator) in postings.iter().zip(denominators.iter()) {
             let mut posting_simd = u8x32::from_slice_unaligned(&posting[i..]);
-            posting_simd /= *denominator;
+            posting_simd = posting_simd / *denominator;
             score_simd &= u8x32::from_cast(posting_simd.ne(zero));
             score_simd += u8x32::from_cast(score_simd.ne(zero)) & posting_simd;
         }
@@ -156,18 +156,6 @@ fn main() {
     println!("finished opening {} shards", shards.len());
 
     let start = Instant::now();
-    for _ in 0..20 {
-        let mut heap = BinaryHeap::new();
-        for i in 0..20 {
-            heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
-        }
-        for (shard_id, shard) in shards.iter_mut().enumerate() {
-            add_scores(shard, &terms, &mut heap, shard_id);
-        }
-    }
-    println!("time to search: {:?}", start.elapsed() / 20);
-
-    let start = Instant::now();
     let mut heap = BinaryHeap::new();
     for i in 0..20 {
         heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
@@ -194,4 +182,16 @@ fn main() {
         let url = shard.get_url(result.id).unwrap();
         println!("got url {}: {}, {}", url, result.val, shard.term_counts()[result.id]);
     }
+
+    let start = Instant::now();
+    for _ in 0..20 {
+        let mut heap = BinaryHeap::new();
+        for i in 0..20 {
+            heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
+        }
+        for (shard_id, shard) in shards.iter_mut().enumerate() {
+            add_scores(shard, &terms, &mut heap, shard_id);
+        }
+    }
+    println!("time to search: {:?}", start.elapsed() / 20);
 }
