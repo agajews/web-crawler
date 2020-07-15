@@ -91,75 +91,75 @@ fn compute_max(scores: &[u8]) -> u8 {
     max
 }
 
-// fn get_scores(shard: &mut IndexShard, terms: &[String]) -> Option<Vec<u8>> {
-//     let mut postings = Vec::with_capacity(terms.len());
-//     for term in terms {
-//         postings.push(shard.get_postings(term, SHARD_SIZE)?);
-//     }
-//     let idfs = compute_idfs(&postings);
-//     println!("idfs: {:?}", idfs);
-//     for i in 0..postings.len() {
-//         divide_scores(&mut postings[i], idfs[i]);
-//     }
-//     let maxs = postings.iter()
-//         .map(|posting| compute_max(&posting) as u32)
-//         .collect::<Vec<_>>();
-//     let total_max = maxs.iter().sum::<u32>();
-//     let denominator = (total_max / 255 + 1) as u8;
-//     for i in 0..postings.len() {
-//         divide_scores(&mut postings[i], denominator);
-//     }
-//     let mut scores = postings.pop().unwrap();
-//     for posting in postings {
-//         join_scores(&mut scores, &posting);
-//     }
-//     Some(scores)
-// }
-
 fn get_scores(shard: &mut IndexShard, terms: &[String]) -> Option<Vec<u8>> {
     let mut postings = Vec::with_capacity(terms.len());
     for term in terms {
         postings.push(shard.get_postings(term, SHARD_SIZE)?);
     }
-    let mut idfs = postings.iter()
-        .map(|posting| (posting.iter().filter(|byte| **byte > 0).count() * (1 << 15)) / SHARD_SIZE)
-        .map(|idf| 32 - (idf as u32).leading_zeros())
-        .map(|log_idf| 1 << (log_idf / 2))
-        .collect::<Vec<_>>();
-    let min_idf = *idfs.iter().min().unwrap();
-    // println!("idfs: {:?}", idfs);
-    for i in 0..idfs.len() {
-        idfs[i] /= min_idf;
-    }
+    let idfs = compute_idfs(&postings);
+    println!("idfs: {:?}", idfs);
     for i in 0..postings.len() {
-        let posting = &mut postings[i];
-        let idf = idfs[i];
-        for j in 0..posting.len() {
-            posting[j] /= idf;
-        }
+        divide_scores(&mut postings[i], idfs[i]);
     }
     let maxs = postings.iter()
-        .map(|posting| *posting.iter().max().unwrap() as u32)
+        .map(|posting| compute_max(&posting) as u32)
         .collect::<Vec<_>>();
     let total_max = maxs.iter().sum::<u32>();
     let denominator = (total_max / 255 + 1) as u8;
-    let mut scores = postings.pop().unwrap();
-    for j in 0..scores.len() {
-        scores[j] /= denominator;
+    for i in 0..postings.len() {
+        divide_scores(&mut postings[i], denominator);
     }
+    let mut scores = postings.pop().unwrap();
     for posting in postings {
-        for j in 0..posting.len() {
-            if scores[j] > 0 {
-                if posting[j] > 0 {
-                    scores[j] += posting[j] / denominator;
-                } else {
-                    scores[j] = 0;
-                }
-            }
-        }
+        join_scores(&mut scores, &posting);
     }
     Some(scores)
 }
+
+// fn get_scores(shard: &mut IndexShard, terms: &[String]) -> Option<Vec<u8>> {
+//     let mut postings = Vec::with_capacity(terms.len());
+//     for term in terms {
+//         postings.push(shard.get_postings(term, SHARD_SIZE)?);
+//     }
+//     let mut idfs = postings.iter()
+//         .map(|posting| (posting.iter().filter(|byte| **byte > 0).count() * (1 << 15)) / SHARD_SIZE)
+//         .map(|idf| 32 - (idf as u32).leading_zeros())
+//         .map(|log_idf| 1 << (log_idf / 2))
+//         .collect::<Vec<_>>();
+//     let min_idf = *idfs.iter().min().unwrap();
+//     // println!("idfs: {:?}", idfs);
+//     for i in 0..idfs.len() {
+//         idfs[i] /= min_idf;
+//     }
+//     for i in 0..postings.len() {
+//         let posting = &mut postings[i];
+//         let idf = idfs[i];
+//         for j in 0..posting.len() {
+//             posting[j] /= idf;
+//         }
+//     }
+//     let maxs = postings.iter()
+//         .map(|posting| *posting.iter().max().unwrap() as u32)
+//         .collect::<Vec<_>>();
+//     let total_max = maxs.iter().sum::<u32>();
+//     let denominator = (total_max / 255 + 1) as u8;
+//     let mut scores = postings.pop().unwrap();
+//     for j in 0..scores.len() {
+//         scores[j] /= denominator;
+//     }
+//     for posting in postings {
+//         for j in 0..posting.len() {
+//             if scores[j] > 0 {
+//                 if posting[j] > 0 {
+//                     scores[j] += posting[j] / denominator;
+//                 } else {
+//                     scores[j] = 0;
+//                 }
+//             }
+//         }
+//     }
+//     Some(scores)
+// }
 
 fn main() {
     let terms = env::args().skip(1).collect::<Vec<_>>();
@@ -180,17 +180,17 @@ fn main() {
     }
     println!("finished opening {} shards", shards.len());
 
-    let mut count = 0;
-    let start = Instant::now();
-    for _ in 0..10 {
-        for shard in shards.iter_mut() {
-            if let Some(postings) = shard.get_postings(&terms[0], SHARD_SIZE) {
-                count += postings.len();
-            }
-        }
-    }
-    println!("time to search: {:?}", start.elapsed() / 10);
-    println!("count: {}", count);
+    // let mut count = 0;
+    // let start = Instant::now();
+    // for _ in 0..10 {
+    //     for shard in shards.iter_mut() {
+    //         if let Some(postings) = shard.get_postings(&terms[0], SHARD_SIZE) {
+    //             count += postings.len();
+    //         }
+    //     }
+    // }
+    // println!("time to search: {:?}", start.elapsed() / 10);
+    // println!("count: {}", count);
 
     let start = Instant::now();
     let mut heap = BinaryHeap::new();

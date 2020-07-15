@@ -14,7 +14,6 @@ use std::io::prelude::*;
 use std::io::SeekFrom;
 use std::convert::TryInto;
 use fasthash::metro::hash64;
-use packed_simd::*;
 
 pub struct RunEncoder {
     len: usize,
