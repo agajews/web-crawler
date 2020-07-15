@@ -118,7 +118,7 @@ fn get_scores(shard: &mut IndexShard, terms: &[String]) -> Option<Vec<u8>> {
     // }
     let mut scores = postings.pop().unwrap();
     divide_scores(&mut scores, denominator * idfs[0].clone());
-    for (posting, idf) in postings.iter().zip(idfs.iter().skip(1)) {
+    for (posting, idf) in postings.iter().zip(idfs) {
         join_scores(&mut scores, &posting, denominator * idf);
     }
     Some(scores)
