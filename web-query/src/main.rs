@@ -146,9 +146,9 @@ fn main() {
     println!("found {} idxs", idxs.len());
     let mut shards = Vec::with_capacity(idxs.len());
     for (core, idx) in idxs {
-        // if idx == 0 {
-        //     println!("opening shard {}:{}", core, idx);
-        // }
+        if idx == 0 {
+            println!("opening shard {}:{}", core, idx);
+        }
         if let Some(shard) = IndexShard::open(&index_dir, &meta_dir, core, idx) {
             shards.push(shard);
         }
