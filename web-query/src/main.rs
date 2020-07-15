@@ -34,7 +34,7 @@ fn count_nonzero(slice: &[u8]) -> u32 {
     let mut count = u8x32::splat(0);
     for i in (0..(slice.len())).step_by(32) {
         let simd = u8x32::from_slice_unaligned(&slice[i..]);
-        let vec = u8x32::from_cast(simd.ne(zero));
+        let vec = u8x32::from_cast(simd.ne(zero)) >> 7;
         count += vec;
         println!("extracted: {}", vec.extract(0));
     }
