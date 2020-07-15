@@ -118,6 +118,7 @@ impl RunEncoder {
                 let val = *serialized.get(i)?;
                 if val == 0 {
                     k += run_len as usize;
+                    println!("skipping run of length {}", run_len);
                 } else {
                     for _ in 0..run_len {
                         decoded[k] = val;
@@ -126,7 +127,6 @@ impl RunEncoder {
                 }
                 i += 1;
             } else {
-                println!("deserializing seg of len {}", seg_len);
                 if i + seg_len > serialized.len() {
                     return None;
                 }
