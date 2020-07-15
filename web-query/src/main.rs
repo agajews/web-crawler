@@ -143,7 +143,7 @@ fn main() {
     let meta_dir = top_dir.join("meta");
 
     let idxs = IndexShard::find_idxs(&index_dir);
-    println!("found {} idxs", idxs);
+    println!("found {} idxs", idxs.len());
     let mut shards = Vec::with_capacity(idxs.len());
     for (core, idx) in idxs {
         // if idx == 0 {
