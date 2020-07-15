@@ -29,29 +29,30 @@ impl PartialOrd for QueryMatch {
 
 
 fn count_nonzero(slice: &[u8]) -> u32 {
-    let zero = u8x32::splat(0);
-    let mut count = u8x32::splat(0);
-    for i in (0..(slice.len())).step_by(32) {
-        let simd = u8x32::from_slice_unaligned(&slice[i..]);
-        count += u8x32::from_cast(simd.ne(zero));
-    }
-    let mut total_count: u32 = 0;
-    for i in 0..32 {
-        total_count += count.extract(i) as u32;
-    }
-    total_count
+    slice.iter().filter(|byte| **byte > 0).count() as u32
+    // let zero = u8x32::splat(0);
+    // let mut count = u8x32::splat(0);
+    // for i in (0..(slice.len())).step_by(32) {
+    //     let simd = u8x32::from_slice_unaligned(&slice[i..]);
+    //     count += u8x32::from_cast(simd.ne(zero));
+    // }
+    // let mut total_count: u32 = 0;
+    // for i in 0..32 {
+    //     total_count += count.extract(i) as u32;
+    // }
+    // total_count
 }
 
 
 fn compute_idfs(postings: &Vec<Vec<u8>>) -> Vec<u8> {
     let mut idfs = Vec::with_capacity(postings.len());
     for posting in postings {
-        // let mut total_count: u32 = 0;
-        // for i in (0..(posting.len())).step_by(32 * 128) {
-        //     let end = std::cmp::min(i + 32 * 128, posting.len());
-        //     total_count += count_nonzero(&posting[i..end]);
-        // }
-        let total_count = posting.iter().filter(|byte| **byte > 0).count() as u32;
+        let mut total_count: u32 = 0;
+        for i in (0..(posting.len())).step_by(32 * 128) {
+            let end = std::cmp::min(i + 32 * 128, posting.len());
+            total_count += count_nonzero(&posting[i..end]);
+        }
+        // let total_count = posting.iter().filter(|byte| **byte > 0).count() as u32;
         let normalized_count = total_count * (1 << 16) / SHARD_SIZE as u32;
         let log_idf = 32 - normalized_count.leading_zeros();
         let idf = 1 << (log_idf / 2);
