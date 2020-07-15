@@ -61,14 +61,14 @@ fn compute_idfs(postings: &Vec<Vec<u8>>) -> Vec<u8> {
 }
 
 fn divide_scores(posting: &mut [u8], denominator: u8) {
-    for i in 0..posting.len() {
-        posting[i] /= denominator;
-    }
-    // for i in (0..posting.len()).step_by(32) {
-    //     let mut simd = u8x32::from_slice_unaligned(&posting[i..]);
-    //     simd /= denominator;
-    //     simd.write_to_slice_unaligned(&mut posting[i..]);
+    // for i in 0..posting.len() {
+    //     posting[i] /= denominator;
     // }
+    for i in (0..posting.len()).step_by(32) {
+        let mut simd = u8x32::from_slice_unaligned(&posting[i..]);
+        simd /= denominator;
+        simd.write_to_slice_unaligned(&mut posting[i..]);
+    }
 }
 
 fn join_scores(scores: &mut [u8], posting: &[u8]) {
@@ -80,16 +80,6 @@ fn join_scores(scores: &mut [u8], posting: &[u8]) {
         score_simd += u8x32::from_cast(score_simd.ne(zero)) & posting_simd;
         score_simd.write_to_slice_unaligned(&mut scores[i..]);
     }
-
-    // for j in 0..posting.len() {
-    //     if scores[j] > 0 {
-    //         if posting[j] > 0 {
-    //             scores[j] += posting[j];
-    //         } else {
-    //             scores[j] = 0;
-    //         }
-    //     }
-    // }
 }
 
 fn compute_max(scores: &[u8]) -> u8 {
