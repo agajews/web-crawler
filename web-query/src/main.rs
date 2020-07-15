@@ -80,7 +80,7 @@ fn join_scores(scores: &mut [u8], postings: Vec<Vec<u8>>, mut idfs: Vec<u8>, den
             score_simd &= u8x32::from_cast(posting_simd.ne(zero));
             score_simd += u8x32::from_cast(score_simd.ne(zero)) & posting_simd;
         }
-        score_simd.write_to_slice_unaligned(&mut scores[i..]);
+        // score_simd.write_to_slice_unaligned(&mut scores[i..]);
     }
 }
 
