@@ -44,26 +44,26 @@ fn count_nonzero(slice: &[u8]) -> u32 {
 
 
 fn compute_idfs(postings: &Vec<Vec<u8>>) -> Vec<u8> {
-    // let mut idfs = Vec::with_capacity(postings.len());
-    // for posting in postings {
-    //     let mut total_count: u32 = 0;
-    //     for i in (0..(posting.len())).step_by(32 * 128) {
-    //         let end = std::cmp::min(i + 32 * 128, posting.len());
-    //         total_count += count_nonzero(&posting[i..end]);
-    //     }
-    //     let normalized_count = total_count * (1 << 16) / SHARD_SIZE as u32;
-    //     let log_idf = 32 - normalized_count.leading_zeros();
-    //     let idf = 1 << (log_idf / 2);
-    //     idfs.push(idf);
-    // }
-    // idfs
-
-    let idfs = postings.iter()
-        .map(|posting| (posting.iter().filter(|byte| **byte > 0).count() * (1 << 15)) / SHARD_SIZE)
-        .map(|idf| 32 - (idf as u32).leading_zeros())
-        .map(|log_idf| 1 << (log_idf / 2))
-        .collect::<Vec<_>>();
+    let mut idfs = Vec::with_capacity(postings.len());
+    for posting in postings {
+        let mut total_count: u32 = 0;
+        for i in (0..(posting.len())).step_by(32 * 128) {
+            let end = std::cmp::min(i + 32 * 128, posting.len());
+            total_count += count_nonzero(&posting[i..end]);
+        }
+        let normalized_count = total_count * (1 << 16) / SHARD_SIZE as u32;
+        let log_idf = 32 - normalized_count.leading_zeros();
+        let idf = 1 << (log_idf / 2);
+        idfs.push(idf);
+    }
     idfs
+
+    // let idfs = postings.iter()
+    //     .map(|posting| (posting.iter().filter(|byte| **byte > 0).count() * (1 << 15)) / SHARD_SIZE)
+    //     .map(|idf| 32 - (idf as u32).leading_zeros())
+    //     .map(|log_idf| 1 << (log_idf / 2))
+    //     .collect::<Vec<_>>();
+    // idfs
 }
 
 fn divide_scores(posting: &mut [u8], denominator: u8) {
