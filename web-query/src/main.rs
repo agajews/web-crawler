@@ -68,7 +68,7 @@ fn divide_scores(posting: &mut [u8], denominator: u8) {
     }
 }
 
-fn join_scores(scores: &mut [u8], postings: Vec<Vec<u8>>, mut idfs: Vec<u8>, denominator: u8) {
+fn join_scores(scores: &mut [u8], postings: Vec<Vec<u8>>, mut idfs: Vec<u8>, denominator: u8, term_counts: &[u8], shard_id: usize, heap: &mut BinaryHeap<QueryMatch>) {
     let zero = u8x32::splat(0);
     let score_idf = idfs.pop().unwrap();
     for i in (0..scores.len()).step_by(32) {
@@ -81,6 +81,18 @@ fn join_scores(scores: &mut [u8], postings: Vec<Vec<u8>>, mut idfs: Vec<u8>, den
             score_simd += u8x32::from_cast(score_simd.ne(zero)) & posting_simd;
         }
         // score_simd.write_to_slice_unaligned(&mut scores[i..]);
+
+        let prev_val = heap.peek().unwrap().val;
+        if score_simd.gt(u8x32::splat(prev_val)).any() {
+            for j in 0..32 {
+                let val = score_simd.extract(j);
+                let id = i + j;
+                if val > heap.peek().unwrap().val && term_counts[id] >= 8 {
+                    heap.pop();
+                    heap.push(QueryMatch { id, shard_id, val });
+                }
+            }
+        }
     }
 }
 
@@ -97,7 +109,7 @@ fn compute_max(scores: &[u8]) -> u8 {
     max
 }
 
-fn get_scores(shard: &mut IndexShard, terms: &[String]) -> Option<Vec<u8>> {
+fn add_scores(shard: &mut IndexShard, terms: &[String], heap: &mut BinaryHeap<QueryMatch>, shard_id: usize) -> Option<Vec<u8>> {
     let mut postings = Vec::with_capacity(terms.len());
     for term in terms {
         postings.push(shard.get_postings(term, SHARD_SIZE)?);
@@ -116,7 +128,8 @@ fn get_scores(shard: &mut IndexShard, terms: &[String]) -> Option<Vec<u8>> {
     let denominator = (total_max / 255 + 1) as u8;
     let mut scores = postings.pop().unwrap();
     // divide_scores(&mut scores, denominator * idfs.pop().unwrap());
-    join_scores(&mut scores, postings, idfs, denominator);
+    let term_counts = shard.term_counts();
+    join_scores(&mut scores, postings, idfs, denominator, term_counts, shard_id, heap);
     // for (posting, idf) in postings.iter().zip(idfs) {
     //     join_scores(&mut scores, &posting, denominator * idf);
     // }
@@ -142,19 +155,14 @@ fn main() {
     }
     println!("finished opening {} shards", shards.len());
 
-    let mut count = 0;
     let start = Instant::now();
     for _ in 0..20 {
-        for shard in shards.iter_mut() {
-            let postings = match get_scores(shard, &terms) {
-                Some(postings) => postings,
-                None => continue,
-            };
-            count += postings.len();
+        let mut heap = BinaryHeap::new();
+        for (shard_id, shard) in shards.iter_mut().enumerate() {
+            add_scores(shard, &terms, &mut heap, shard_id);
         }
     }
     println!("time to search: {:?}", start.elapsed() / 20);
-    println!("count: {}", count);
 
     let start = Instant::now();
     let mut heap = BinaryHeap::new();
@@ -162,17 +170,18 @@ fn main() {
         heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
     }
     for (shard_id, shard) in shards.iter_mut().enumerate() {
-        let postings = match get_scores(shard, &terms) {
-            Some(postings) => postings,
-            None => continue,
-        };
-        let term_counts = shard.term_counts();
-        for (id, val) in postings.into_iter().enumerate() {
-            if val > heap.peek().unwrap().val && term_counts[id] >= 8 {
-                heap.pop();
-                heap.push(QueryMatch { id, shard_id, val });
-            }
-        }
+        add_scores(shard, &terms, &mut heap, shard_id);
+        // let postings = match get_scores(shard, &terms) {
+        //     Some(postings) => postings,
+        //     None => continue,
+        // };
+        // let term_counts = shard.term_counts();
+        // for (id, val) in postings.into_iter().enumerate() {
+        //     if val > heap.peek().unwrap().val && term_counts[id] >= 8 {
+        //         heap.pop();
+        //         heap.push(QueryMatch { id, shard_id, val });
+        //     }
+        // }
     }
     println!("time to search: {:?}", start.elapsed());
 
