@@ -44,7 +44,7 @@ fn count_nonzero(slice: &[u8]) -> u32 {
 }
 
 
-fn compute_idfs(postings: &Vec<Vec<u8>>) -> Vec<u8> {
+fn compute_idfs(postings: &Vec<Vec<u8>>) -> Vec<u32> {
     let mut idfs = Vec::with_capacity(postings.len());
     for posting in postings {
         let mut total_count: u32 = 0;
@@ -68,15 +68,18 @@ fn divide_scores(posting: &mut [u8], denominator: u8) {
     }
 }
 
-fn join_scores(scores: &mut [u8], postings: Vec<Vec<u8>>, mut denominators: Vec<u8>, term_counts: &[u8], shard_id: usize, heap: &mut BinaryHeap<QueryMatch>) {
+fn join_scores(scores: &mut [u8], postings: Vec<Vec<u8>>, mut denominators: Vec<u32>, term_counts: &[u8], shard_id: usize, heap: &mut BinaryHeap<QueryMatch>) {
     let zero = u8x32::splat(0);
+    for i in 0..denominators.len() {
+        denominators[i] = 32 - denominators[i].next_power_of_two() - 1;
+    }
     let score_denominator = denominators.pop().unwrap();
     for i in (0..scores.len()).step_by(32) {
         let mut score_simd = u8x32::from_slice_unaligned(&scores[i..]);
-        score_simd = score_simd / score_denominator;
+        score_simd = score_simd >> score_denominator;
         for (posting, denominator) in postings.iter().zip(denominators.iter()) {
             let mut posting_simd = u8x32::from_slice_unaligned(&posting[i..]);
-            posting_simd = posting_simd / *denominator;
+            posting_simd = posting_simd >> *denominator;
             score_simd &= u8x32::from_cast(posting_simd.ne(zero));
             score_simd += u8x32::from_cast(score_simd.ne(zero)) & posting_simd;
         }
@@ -122,10 +125,10 @@ fn add_scores(shard: &mut IndexShard, terms: &[String], heap: &mut BinaryHeap<Qu
     }
     let maxs = postings.iter()
         .zip(idfs.iter())
-        .map(|(posting, idf)| (compute_max(&posting) / idf) as u32)
+        .map(|(posting, idf)| (compute_max(&posting) as u32 / idf) as u32)
         .collect::<Vec<_>>();
     let total_max = maxs.iter().sum::<u32>();
-    let denominator = (total_max / 255 + 1) as u8;
+    let denominator = total_max / 255 + 1;
     let denominators = idfs.into_iter()
         .map(|idf| idf * denominator)
         .collect::<Vec<_>>();
