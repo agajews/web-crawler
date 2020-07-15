@@ -126,16 +126,16 @@ impl RunEncoder {
                 }
                 i += 1;
             } else {
-                // if i + seg_len >= serialized.len() {
-                //     return None;
-                // }
-                // decoded[k..(k + seg_len)].copy_from_slice(&serialized[i..(i + seg_len)]);
-                for j in 0..(seg_len as usize) {
-                    decoded[k] = *serialized.get(i + j)?;
-                    k += 1;
+                if i + seg_len > serialized.len() {
+                    return None;
                 }
+                decoded[k..(k + seg_len)].copy_from_slice(&serialized[i..(i + seg_len)]);
+                // for j in 0..(seg_len as usize) {
+                //     decoded[k] = *serialized.get(i + j)?;
+                //     k += 1;
+                // }
                 i += seg_len;
-                // k += seg_len;
+                k += seg_len;
             }
         }
         Some(decoded)
