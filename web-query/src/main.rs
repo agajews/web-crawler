@@ -108,7 +108,7 @@ fn get_scores(shard: &mut IndexShard, terms: &[String]) -> Option<Vec<u8>> {
     //     divide_scores(&mut postings[i], idfs[i]);
     // }
     let maxs = postings.iter()
-        .zip(idfs)
+        .zip(idfs.iter())
         .map(|(posting, idf)| (compute_max(&posting) / idf) as u32)
         .collect::<Vec<_>>();
     let total_max = maxs.iter().sum::<u32>();
@@ -117,9 +117,9 @@ fn get_scores(shard: &mut IndexShard, terms: &[String]) -> Option<Vec<u8>> {
     //     divide_scores(&mut postings[i], denominator);
     // }
     let mut scores = postings.pop().unwrap();
-    divide_scores(&mut scores, denominator);
-    for posting in postings {
-        join_scores(&mut scores, &posting, denominator);
+    divide_scores(&mut scores, denominator * idfs[0].clone());
+    for (posting, idf) in postings.iter().zip(idfs.iter().skip(1)) {
+        join_scores(&mut scores, &posting, denominator * idf);
     }
     Some(scores)
 }
