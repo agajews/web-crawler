@@ -419,9 +419,9 @@ impl IndexShard {
             Some(file) => file,
             None => { println!("failed to read index for {}:{}", core, idx); return None; },
         };
-        let mut urls = match fs::File::open(&meta_path.join("urls")).ok() {
-            Some(file) => file,
-            None => { println!("failed to read urls for {}:{}", core, idx); return None; },
+        let mut urls = match fs::File::open(&meta_path.join("urls")) {
+            Ok(file) => file,
+            Err(err) => { println!("failed to read urls for {}:{}, {}", core, idx, err); return None; },
         };
         let (n_urls, url_headers) = match Self::deserialize_url_headers(&mut urls) {
             Some(headers) => headers,
