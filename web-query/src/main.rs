@@ -158,6 +158,9 @@ fn main() {
     let start = Instant::now();
     for _ in 0..20 {
         let mut heap = BinaryHeap::new();
+        for i in 0..20 {
+            heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
+        }
         for (shard_id, shard) in shards.iter_mut().enumerate() {
             add_scores(shard, &terms, &mut heap, shard_id);
         }
