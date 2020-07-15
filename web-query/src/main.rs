@@ -91,27 +91,72 @@ fn compute_max(scores: &[u8]) -> u8 {
     max
 }
 
+// fn get_scores(shard: &mut IndexShard, terms: &[String]) -> Option<Vec<u8>> {
+//     let mut postings = Vec::with_capacity(terms.len());
+//     for term in terms {
+//         postings.push(shard.get_postings(term, SHARD_SIZE)?);
+//     }
+//     let idfs = compute_idfs(&postings);
+//     println!("idfs: {:?}", idfs);
+//     for i in 0..postings.len() {
+//         divide_scores(&mut postings[i], idfs[i]);
+//     }
+//     let maxs = postings.iter()
+//         .map(|posting| compute_max(&posting) as u32)
+//         .collect::<Vec<_>>();
+//     let total_max = maxs.iter().sum::<u32>();
+//     let denominator = (total_max / 255 + 1) as u8;
+//     for i in 0..postings.len() {
+//         divide_scores(&mut postings[i], denominator);
+//     }
+//     let mut scores = postings.pop().unwrap();
+//     for posting in postings {
+//         join_scores(&mut scores, &posting);
+//     }
+//     Some(scores)
+// }
+
 fn get_scores(shard: &mut IndexShard, terms: &[String]) -> Option<Vec<u8>> {
     let mut postings = Vec::with_capacity(terms.len());
     for term in terms {
         postings.push(shard.get_postings(term, SHARD_SIZE)?);
     }
-    let idfs = compute_idfs(&postings);
-    println!("idfs: {:?}", idfs);
+    let mut idfs = postings.iter()
+        .map(|posting| (posting.iter().filter(|byte| **byte > 0).count() * (1 << 15)) / SHARD_SIZE)
+        .map(|idf| 32 - (idf as u32).leading_zeros())
+        .map(|log_idf| 1 << (log_idf / 2))
+        .collect::<Vec<_>>();
+    let min_idf = *idfs.iter().min().unwrap();
+    // println!("idfs: {:?}", idfs);
+    for i in 0..idfs.len() {
+        idfs[i] /= min_idf;
+    }
     for i in 0..postings.len() {
-        divide_scores(&mut postings[i], idfs[i]);
+        let posting = &mut postings[i];
+        let idf = idfs[i];
+        for j in 0..posting.len() {
+            posting[j] /= idf;
+        }
     }
     let maxs = postings.iter()
-        .map(|posting| compute_max(&posting) as u32)
+        .map(|posting| *posting.iter().max().unwrap() as u32)
         .collect::<Vec<_>>();
     let total_max = maxs.iter().sum::<u32>();
     let denominator = (total_max / 255 + 1) as u8;
-    for i in 0..postings.len() {
-        divide_scores(&mut postings[i], denominator);
-    }
     let mut scores = postings.pop().unwrap();
+    for j in 0..scores.len() {
+        scores[j] /= denominator;
+    }
     for posting in postings {
-        join_scores(&mut scores, &posting);
+        for j in 0..posting.len() {
+            if scores[j] > 0 {
+                if posting[j] > 0 {
+                    scores[j] += posting[j] / denominator;
+                } else {
+                    scores[j] = 0;
+                }
+            }
+        }
     }
     Some(scores)
 }
@@ -147,30 +192,30 @@ fn main() {
     println!("time to search: {:?}", start.elapsed() / 10);
     println!("count: {}", count);
 
-    // let start = Instant::now();
-    // let mut heap = BinaryHeap::new();
-    // for i in 0..20 {
-    //     heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
-    // }
-    // for (shard_id, shard) in shards.iter_mut().enumerate() {
-    //     let postings = match get_scores(shard, &terms) {
-    //         Some(postings) => postings,
-    //         None => continue,
-    //     };
-    //     let term_counts = shard.term_counts();
-    //     for (id, val) in postings.into_iter().enumerate() {
-    //         if val > heap.peek().unwrap().val && term_counts[id] >= 8 {
-    //             heap.pop();
-    //             heap.push(QueryMatch { id, shard_id, val });
-    //         }
-    //     }
-    // }
-    // println!("time to search: {:?}", start.elapsed());
+    let start = Instant::now();
+    let mut heap = BinaryHeap::new();
+    for i in 0..20 {
+        heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
+    }
+    for (shard_id, shard) in shards.iter_mut().enumerate() {
+        let postings = match get_scores(shard, &terms) {
+            Some(postings) => postings,
+            None => continue,
+        };
+        let term_counts = shard.term_counts();
+        for (id, val) in postings.into_iter().enumerate() {
+            if val > heap.peek().unwrap().val && term_counts[id] >= 8 {
+                heap.pop();
+                heap.push(QueryMatch { id, shard_id, val });
+            }
+        }
+    }
+    println!("time to search: {:?}", start.elapsed());
 
-    // let results = heap.into_sorted_vec();
-    // for result in results {
-    //     let shard = &mut shards[result.shard_id];
-    //     let url = shard.get_url(result.id).unwrap();
-    //     println!("got url {}: {}, {}", url, result.val, shard.term_counts()[result.id]);
-    // }
+    let results = heap.into_sorted_vec();
+    for result in results {
+        let shard = &mut shards[result.shard_id];
+        let url = shard.get_url(result.id).unwrap();
+        println!("got url {}: {}, {}", url, result.val, shard.term_counts()[result.id]);
+    }
 }
