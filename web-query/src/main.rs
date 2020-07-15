@@ -68,7 +68,7 @@ fn divide_scores(posting: &mut [u8], denominator: u8) {
     }
 }
 
-fn join_scores(scores: &mut [u8], postings: Vec<Vec<u8>>, mut denominators: Vec<u32>, term_counts: &[u8], shard_id: usize, heap: &mut BinaryHeap<QueryMatch>) {
+fn join_scores(scores: &[u8], postings: Vec<Vec<u8>>, mut denominators: Vec<u32>, term_counts: &[u8], shard_id: usize, heap: &mut BinaryHeap<QueryMatch>) {
     let zero = u8x32::splat(0);
     for i in 0..denominators.len() {
         denominators[i] = 32 - denominators[i].next_power_of_two().leading_zeros() - 1;
@@ -112,7 +112,7 @@ fn compute_max(scores: &[u8]) -> u8 {
     max
 }
 
-fn add_scores(shard: &mut IndexShard, terms: &[String], heap: &mut BinaryHeap<QueryMatch>, shard_id: usize) -> Option<Vec<u8>> {
+fn add_scores(shard: &mut IndexShard, terms: &[String], heap: &mut BinaryHeap<QueryMatch>, shard_id: usize) -> Option<()> {
     let mut postings = Vec::with_capacity(terms.len());
     for term in terms {
         postings.push(shard.get_postings(term, SHARD_SIZE)?);
@@ -132,10 +132,10 @@ fn add_scores(shard: &mut IndexShard, terms: &[String], heap: &mut BinaryHeap<Qu
     let denominators = idfs.into_iter()
         .map(|idf| idf * denominator)
         .collect::<Vec<_>>();
-    let mut scores = postings.pop().unwrap();
+    let scores = postings.pop().unwrap();
     let term_counts = shard.term_counts();
-    join_scores(&mut scores, postings, denominators, term_counts, shard_id, heap);
-    Some(scores)
+    join_scores(&scores, postings, denominators, term_counts, shard_id, heap);
+    Some(())
 }
 
 fn main() {
@@ -163,8 +163,11 @@ fn main() {
     for i in 0..20 {
         heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
     }
+    let mut count = 0;
     for (shard_id, shard) in shards.iter_mut().enumerate() {
-        add_scores(shard, &terms, &mut heap, shard_id);
+        if let Some(_) = add_scores(shard, &terms, &mut heap, shard_id) {
+            count += 1;
+        };
         // let postings = match get_scores(shard, &terms) {
         //     Some(postings) => postings,
         //     None => continue,
@@ -178,6 +181,7 @@ fn main() {
         // }
     }
     println!("time to search: {:?}", start.elapsed());
+    println!("found postings in {} shards", count);
 
     let results = heap.into_sorted_vec();
     for result in results {
