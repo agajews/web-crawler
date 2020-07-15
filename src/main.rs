@@ -171,6 +171,7 @@ fn clearly_not_html(url: &str) -> bool {
         !url.starts_with("http")
 }
 
+// TODO: https standardization
 async fn add_links(source: &Url, document: &str, state: &CrawlerState, handler: &TaskHandler<String>) {
     let links = state.link_re.find_iter(document)
         .map(|m| m.as_str())

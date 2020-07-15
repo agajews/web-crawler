@@ -111,7 +111,7 @@ impl RunEncoder {
         let mut i = 8;
         let mut k = 0;
         for _ in 0..n_segs {
-            let seg_len = u32::from_be_bytes(serialized[i..(i + 4)].try_into().ok()?);
+            let seg_len = u32::from_be_bytes(serialized[i..(i + 4)].try_into().ok()?) as usize;
             i += 4;
             if seg_len >= (1 << 31) {
                 let run_len = seg_len - (1 << 31);
@@ -126,11 +126,16 @@ impl RunEncoder {
                 }
                 i += 1;
             } else {
-                for j in 0..(seg_len as usize) {
-                    decoded[k] = *serialized.get(i + j)?;
-                    k += 1;
+                if i + seg_len >= serialized.len() {
+                    return None;
                 }
+                decoded[k..(k + seg_len)].copy_from_slice(&serialized[i..(i + seg_len)]);
+                // for j in 0..(seg_len as usize) {
+                //     decoded[k] = *serialized.get(i + j)?;
+                //     k += 1;
+                // }
                 i += seg_len as usize;
+                k += seg_len as usize;
             }
         }
         Some(decoded)
