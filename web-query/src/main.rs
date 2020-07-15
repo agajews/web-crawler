@@ -96,8 +96,12 @@ fn get_scores(shard: &mut IndexShard, terms: &[String]) -> Option<Vec<u8>> {
     for term in terms {
         postings.push(shard.get_postings(term, SHARD_SIZE)?);
     }
-    let idfs = compute_idfs(&postings);
-    println!("idfs: {:?}", idfs);
+    let mut idfs = compute_idfs(&postings);
+    // println!("idfs: {:?}", idfs);
+    let min_idf = *idfs.iter().min().unwrap();
+    for i in 0..idfs.len() {
+        idfs[i] /= min_idf;
+    }
     for i in 0..postings.len() {
         divide_scores(&mut postings[i], idfs[i]);
     }
