@@ -71,7 +71,7 @@ fn divide_scores(posting: &mut [u8], denominator: u8) {
 fn join_scores(scores: &mut [u8], postings: Vec<Vec<u8>>, mut denominators: Vec<u32>, term_counts: &[u8], shard_id: usize, heap: &mut BinaryHeap<QueryMatch>) {
     let zero = u8x32::splat(0);
     for i in 0..denominators.len() {
-        denominators[i] = 32 - denominators[i].next_power_of_two() - 1;
+        denominators[i] = 32 - denominators[i].next_power_of_two().leading_zeros() - 1;
     }
     let score_denominator = denominators.pop().unwrap();
     for i in (0..scores.len()).step_by(32) {
