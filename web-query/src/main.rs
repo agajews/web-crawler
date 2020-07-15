@@ -68,15 +68,15 @@ fn divide_scores(posting: &mut [u8], denominator: u8) {
     }
 }
 
-fn join_scores(scores: &mut [u8], postings: Vec<Vec<u8>>, mut idfs: Vec<u8>, denominator: u8, term_counts: &[u8], shard_id: usize, heap: &mut BinaryHeap<QueryMatch>) {
+fn join_scores(scores: &mut [u8], postings: Vec<Vec<u8>>, mut denominators: Vec<u8>, term_counts: &[u8], shard_id: usize, heap: &mut BinaryHeap<QueryMatch>) {
     let zero = u8x32::splat(0);
-    let score_idf = idfs.pop().unwrap() * denominator;
+    let score_denominator = denominators.pop().unwrap();
     for i in (0..scores.len()).step_by(32) {
         let mut score_simd = u8x32::from_slice_unaligned(&scores[i..]);
-        score_simd /= score_idf;
-        for (posting, idf) in postings.iter().zip(idfs.iter()) {
+        score_simd /= score_denominator;
+        for (posting, denominator) in postings.iter().zip(denominators.iter()) {
             let mut posting_simd = u8x32::from_slice_unaligned(&posting[i..]);
-            posting_simd /= denominator * (*idf);
+            posting_simd /= *denominator;
             score_simd &= u8x32::from_cast(posting_simd.ne(zero));
             score_simd += u8x32::from_cast(score_simd.ne(zero)) & posting_simd;
         }
@@ -126,13 +126,12 @@ fn add_scores(shard: &mut IndexShard, terms: &[String], heap: &mut BinaryHeap<Qu
         .collect::<Vec<_>>();
     let total_max = maxs.iter().sum::<u32>();
     let denominator = (total_max / 255 + 1) as u8;
+    let denominators = idfs.into_iter()
+        .map(|idf| idf * denominator)
+        .collect::<Vec<_>>();
     let mut scores = postings.pop().unwrap();
-    // divide_scores(&mut scores, denominator * idfs.pop().unwrap());
     let term_counts = shard.term_counts();
-    join_scores(&mut scores, postings, idfs, denominator, term_counts, shard_id, heap);
-    // for (posting, idf) in postings.iter().zip(idfs) {
-    //     join_scores(&mut scores, &posting, denominator * idf);
-    // }
+    join_scores(&mut scores, postings, denominators, term_counts, shard_id, heap);
     Some(scores)
 }
 
