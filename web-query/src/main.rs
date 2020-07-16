@@ -8,7 +8,7 @@ use tokio::sync::mpsc::{channel, Sender, Receiver};
 use std::sync::{Arc, Mutex};
 
 const SHARD_SIZE: usize = 100000;
-const N_THREADS: usize = 16;
+const N_THREADS: usize = 1;
 
 #[derive(Eq, PartialEq)]
 struct QueryMatch {
@@ -220,48 +220,46 @@ async fn main() {
         ready_receiver.recv().await;
     }
 
-    for _ in 0..20 {
-        let start = Instant::now();
-        let mut heap = BinaryHeap::new();
-        for i in 0..20 {
-            heap.push(QueryMatch { id: i, shard_id: 0, val: 0, tid: 0 });
-        }
-        let heap = Arc::new(Mutex::new(heap));
+    let start = Instant::now();
+    let mut heap = BinaryHeap::new();
+    for i in 0..20 {
+        heap.push(QueryMatch { id: i, shard_id: 0, val: 0, tid: 0 });
+    }
+    let heap = Arc::new(Mutex::new(heap));
 
-        let (done_sender, mut done_receiver) = channel(N_THREADS);
+    let (done_sender, mut done_receiver) = channel(N_THREADS);
 
-        let job = QueryJob {
-            done_sender,
-            terms: terms.clone(),
-            heap: heap.clone(),
-        };
+    let job = QueryJob {
+        done_sender,
+        terms: terms.clone(),
+        heap: heap.clone(),
+    };
 
-        for work_sender in &mut work_senders {
-            let job = job.clone();
-            let _res = work_sender.send(Job::Query(job)).await;
-        }
+    for work_sender in &mut work_senders {
+        let job = job.clone();
+        let _res = work_sender.send(Job::Query(job)).await;
+    }
 
-        let mut count = 0;
-        for _ in 0..N_THREADS {
-            count += done_receiver.recv().await.unwrap();
-        }
+    let mut count = 0;
+    for _ in 0..N_THREADS {
+        count += done_receiver.recv().await.unwrap();
+    }
 
-        println!("time to search: {:?}", start.elapsed());
-        println!("found postings in {} shards", count);
+    println!("time to search: {:?}", start.elapsed());
+    println!("found postings in {} shards", count);
 
-        let mut results = heap.lock().unwrap().drain().collect::<Vec<_>>();
-        results.sort();
-        let mut done_receivers = Vec::with_capacity(N_THREADS);
-        for result in &results {
-            let (done_sender, done_receiver) = channel(1);
-            done_receivers.push(done_receiver);
-            let job = UrlJob { shard_id: result.shard_id, id: result.id, done_sender };
-            let _res = work_senders[result.tid].send(Job::Url(job)).await;
-        }
+    let mut results = heap.lock().unwrap().drain().collect::<Vec<_>>();
+    results.sort();
+    let mut done_receivers = Vec::with_capacity(N_THREADS);
+    for result in &results {
+        let (done_sender, done_receiver) = channel(1);
+        done_receivers.push(done_receiver);
+        let job = UrlJob { shard_id: result.shard_id, id: result.id, done_sender };
+        let _res = work_senders[result.tid].send(Job::Url(job)).await;
+    }
 
-        for (result, mut done_receiver) in results.iter().zip(done_receivers) {
-            let (url, term_count) = done_receiver.recv().await.unwrap();
-            println!("got url {}: {}, {}", url, result.val, term_count);
-        }
+    for (result, mut done_receiver) in results.iter().zip(done_receivers) {
+        let (url, term_count) = done_receiver.recv().await.unwrap();
+        println!("got url {}: {}, {}", url, result.val, term_count);
     }
 }
