@@ -15,7 +15,7 @@ use std::io::SeekFrom;
 use std::convert::TryInto;
 use fasthash::metro::hash64;
 
-const MIN_RUN_LEN: usize = 3;
+const MIN_RUN_LEN: usize = 32;
 
 pub struct RunEncoder {
     len: usize,
@@ -399,7 +399,7 @@ impl<T: Serialize + DeserializeOwned> TaskHandler<T> {
 }
 
 pub struct IndexShard {
-    index: fs::File,
+    index: tokio::fs::File,
     index_headers: Vec<(u64, (u32, u32))>,
     urls: fs::File,
     url_headers: Vec<(u32, u32)>,
@@ -408,7 +408,7 @@ pub struct IndexShard {
 }
 
 impl IndexShard {
-    pub fn open<P: Into<PathBuf>, Q: Into<PathBuf>>(index_dir: P, meta_dir: Q, core: String, idx: usize) -> Option<IndexShard> {
+    pub async fn open<P: Into<PathBuf>, Q: Into<PathBuf>>(index_dir: P, meta_dir: Q, core: String, idx: usize) -> Option<IndexShard> {
         let index_dir = index_dir.into().join(&core).join(format!("db{}", idx));
         let meta_path = meta_dir.into().join(&core).join(format!("db{}", idx));
         let index_headers = match fs::read(index_dir.join("metadata")).ok() {
@@ -418,7 +418,7 @@ impl IndexShard {
             },
             None => { println!("failed to read headers for {}:{}", core, idx); return None; },
         };
-        let index = match fs::File::open(index_dir.join("data")).ok() {
+        let index = match tokio::fs::File::open(index_dir.join("data")).await.ok() {
             Some(file) => file,
             None => { println!("failed to read index for {}:{}", core, idx); return None; },
         };
@@ -500,11 +500,11 @@ impl IndexShard {
         Some((offset, len))
     }
 
-    pub fn get_postings(&mut self, term: &str, size: usize) -> Option<Vec<u8>> {
+    pub async fn get_postings(&mut self, term: &str, size: usize) -> Option<Vec<u8>> {
         let (offset, len) = self.search_for_term(hash64(term))?;
-        self.index.seek(SeekFrom::Start(offset as u64)).ok()?;
+        self.index.seek(SeekFrom::Start(offset as u64)).await.ok()?;
         let mut bytes = vec![0; len as usize];
-        self.index.read_exact(&mut bytes).ok()?;
+        self.index.read_exact(&mut bytes).await.ok()?;
         RunEncoder::deserialize(bytes, size)
     }
 

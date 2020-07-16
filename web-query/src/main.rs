@@ -5,6 +5,8 @@ use std::collections::BinaryHeap;
 use std::time::Instant;
 use packed_simd::*;
 use std::fs;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 const SHARD_SIZE: usize = 100000;
 
@@ -125,7 +127,8 @@ fn add_scores(mut postings: Vec<Vec<u8>>, term_counts: &[u8], heap: &mut BinaryH
     join_scores(&scores, postings, denominators, term_counts, shard_id, heap);
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let terms = env::args().skip(1).collect::<Vec<_>>();
 
     let top_dir: PathBuf = env::var("CRAWLER_DIR").unwrap().into();
@@ -142,8 +145,8 @@ fn main() {
         if idx == 0 {
             println!("opening shard {}:{}", core, idx);
         }
-        if let Some(shard) = IndexShard::open(&index_dir, &meta_dir, core, idx) {
-            shards.push(shard);
+        if let Some(shard) = IndexShard::open(&index_dir, &meta_dir, core, idx).await {
+            shards.push(Arc::new(Mutex::new(shard)));
         }
     }
     println!("finished opening {} shards", shards.len());
@@ -153,12 +156,26 @@ fn main() {
     for i in 0..20 {
         heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
     }
+
+    let mut futures = Vec::new();
+    for shard in shards.iter() {
+        let terms = terms.clone();
+        let shard = shard.clone();
+        futures.push(tokio::spawn(async move {
+            let mut shard = shard.lock().await;
+            let mut postings = Vec::new();
+            for term in terms {
+                postings.push(shard.get_postings(&term, SHARD_SIZE).await);
+            }
+            postings.into_iter().collect::<Option<Vec<_>>>()
+        }));
+    }
+
     let mut count = 0;
-    for (shard_id, shard) in shards.iter_mut().enumerate() {
-        let postings = terms.iter()
-            .map(|term| shard.get_postings(term, SHARD_SIZE))
-            .collect::<Option<Vec<_>>>();
+    for (shard_id, postings_fut) in futures.into_iter().enumerate() {
+        let postings = postings_fut.await.unwrap();
         if let Some(postings) = postings {
+            let shard = shards[shard_id].lock().await;
             let term_counts = shard.term_counts();
             add_scores(postings, term_counts, &mut heap, shard_id);
             count += 1;
@@ -169,26 +186,26 @@ fn main() {
 
     let results = heap.into_sorted_vec();
     for result in results {
-        let shard = &mut shards[result.shard_id];
+        let mut shard = shards[result.shard_id].lock().await;
         let url = shard.get_url(result.id).unwrap();
         println!("got url {}: {}, {}", url, result.val, shard.term_counts()[result.id]);
     }
 
-    let start = Instant::now();
-    for _ in 0..20 {
-        let mut heap = BinaryHeap::new();
-        for i in 0..20 {
-            heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
-        }
-        for (shard_id, shard) in shards.iter_mut().enumerate() {
-            let postings = terms.iter()
-                .map(|term| shard.get_postings(term, SHARD_SIZE))
-                .collect::<Option<Vec<_>>>();
-            if let Some(postings) = postings {
-                let term_counts = shard.term_counts();
-                add_scores(postings, term_counts, &mut heap, shard_id);
-            }
-        }
-    }
-    println!("time to search: {:?}", start.elapsed() / 20);
+    // let start = Instant::now();
+    // for _ in 0..20 {
+    //     let mut heap = BinaryHeap::new();
+    //     for i in 0..20 {
+    //         heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
+    //     }
+    //     for (shard_id, shard) in shards.iter_mut().enumerate() {
+    //         let postings = terms.iter()
+    //             .map(|term| shard.get_postings(term, SHARD_SIZE))
+    //             .collect::<Option<Vec<_>>>();
+    //         if let Some(postings) = postings {
+    //             let term_counts = shard.term_counts();
+    //             add_scores(postings, term_counts, &mut heap, shard_id);
+    //         }
+    //     }
+    // }
+    // println!("time to search: {:?}", start.elapsed() / 20);
 }
