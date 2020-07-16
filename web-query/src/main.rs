@@ -248,11 +248,8 @@ async fn main() {
     println!("time to search: {:?}", start.elapsed());
     println!("found postings in {} shards", count);
 
-    let heap = match Arc::try_unwrap(heap) {
-        Ok(heap) => heap.into_inner().unwrap(),
-        Err(_) => { println!("failed to get heap!"); return (); },
-    };
-    let results = heap.into_sorted_vec();
+    let mut results = heap.lock().unwrap().drain().collect::<Vec<_>>();
+    results.sort();
     let mut done_receivers = Vec::with_capacity(N_THREADS);
     for result in &results {
         let (done_sender, done_receiver) = channel(1);
