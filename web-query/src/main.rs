@@ -151,45 +151,47 @@ async fn main() {
     }
     println!("finished opening {} shards", shards.len());
 
-    let start = Instant::now();
-    let mut heap = BinaryHeap::new();
-    for i in 0..20 {
-        heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
-    }
-
-    let mut futures = Vec::new();
-    for shard in shards.iter() {
-        let terms = terms.clone();
-        let shard = shard.clone();
-        futures.push(tokio::spawn(async move {
-            let mut shard = shard.lock().await;
-            let mut postings = Vec::new();
-            for term in terms {
-                postings.push(shard.get_postings(&term, SHARD_SIZE).await);
-            }
-            postings.into_iter().collect::<Option<Vec<_>>>()
-        }));
-    }
-
-    let mut count = 0;
-    for (shard_id, postings_fut) in futures.into_iter().enumerate() {
-        let postings = postings_fut.await.unwrap();
-        if let Some(postings) = postings {
-            let shard = shards[shard_id].lock().await;
-            let term_counts = shard.term_counts();
-            add_scores(postings, term_counts, &mut heap, shard_id);
-            count += 1;
+    for _ in 0..20 {
+        let start = Instant::now();
+        let mut heap = BinaryHeap::new();
+        for i in 0..20 {
+            heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
         }
-    }
-    println!("time to search: {:?}", start.elapsed());
-    println!("found postings in {} shards", count);
 
-    let results = heap.into_sorted_vec();
-    for result in results {
-        let mut shard = shards[result.shard_id].lock().await;
-        let url = shard.get_url(result.id).unwrap();
-        println!("got url {}: {}, {}", url, result.val, shard.term_counts()[result.id]);
+        let mut futures = Vec::new();
+        for shard in shards.iter() {
+            let terms = terms.clone();
+            let shard = shard.clone();
+            futures.push(tokio::spawn(async move {
+                let mut shard = shard.lock().await;
+                let mut postings = Vec::new();
+                for term in terms {
+                    postings.push(shard.get_postings(&term, SHARD_SIZE).await);
+                }
+                postings.into_iter().collect::<Option<Vec<_>>>()
+            }));
+        }
+
+        let mut count = 0;
+        for (shard_id, postings_fut) in futures.into_iter().enumerate() {
+            let postings = postings_fut.await.unwrap();
+            if let Some(postings) = postings {
+                let shard = shards[shard_id].lock().await;
+                let term_counts = shard.term_counts();
+                add_scores(postings, term_counts, &mut heap, shard_id);
+                count += 1;
+            }
+        }
+        println!("time to search: {:?}", start.elapsed());
+        println!("found postings in {} shards", count);
     }
+
+    // let results = heap.into_sorted_vec();
+    // for result in results {
+    //     let mut shard = shards[result.shard_id].lock().await;
+    //     let url = shard.get_url(result.id).unwrap();
+    //     println!("got url {}: {}, {}", url, result.val, shard.term_counts()[result.id]);
+    // }
 
     // let start = Instant::now();
     // for _ in 0..20 {
