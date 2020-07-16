@@ -174,6 +174,9 @@ async fn handle_url(shards: &mut [IndexShard], mut job: UrlJob) {
 async fn shard_thread(tid: usize, chunk: Vec<(String, usize)>, index_dir: PathBuf, meta_dir: PathBuf, mut ready_sender: Sender<()>, mut work_receiver: Receiver<Job>) {
     let mut shards = Vec::with_capacity(chunk.len());
     for (core, idx) in chunk {
+        if idx == 0 {
+            println!("opened shard {}:{}", core, idx);
+        }
         if let Some(shard) = IndexShard::open(&index_dir, &meta_dir, core, idx).await {
             shards.push(shard);
         }
