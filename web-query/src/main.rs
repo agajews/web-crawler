@@ -222,7 +222,7 @@ fn main() {
     }
 
     for _ in 0..20 {
-        Command::new("sudo").arg("su").arg("-c").arg("'echo 1 > /proc/sys/vm/drop_caches'").output().unwrap();
+        Command::new("sudo").arg("su").arg("-c").arg("echo 1 > /proc/sys/vm/drop_caches").output().unwrap();
 
         let start = Instant::now();
         let mut heap = BinaryHeap::new();
