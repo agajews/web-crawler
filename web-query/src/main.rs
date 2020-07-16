@@ -162,10 +162,10 @@ async fn main() {
         let (sender, receiver) = channel();
 
         for (shard_id, shard) in shards.drain(0..).enumerate() {
-            println!("spawning shard {}", shard_id);
             let terms = terms.clone();
             let sender = sender.clone();
             tokio::spawn(async move {
+                println!("spawning shard {}", shard_id);
                 let mut postings = Vec::new();
                 let mut shard = shard.unwrap();
                 for term in terms {
