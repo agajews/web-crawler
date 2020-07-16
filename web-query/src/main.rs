@@ -4,15 +4,17 @@ use std::env;
 use std::collections::BinaryHeap;
 use std::time::Instant;
 use packed_simd::*;
-use std::fs;
-use tokio::sync::mpsc::channel;
+use tokio::sync::mpsc::{channel, Sender, Receiver};
+use std::sync::{Arc, Mutex};
 
 const SHARD_SIZE: usize = 100000;
+const N_THREADS: usize = 32;
 
 #[derive(Eq, PartialEq)]
 struct QueryMatch {
     id: usize,
     shard_id: usize,
+    tid: usize,
     val: u8,
 }
 
@@ -62,7 +64,7 @@ fn compute_idfs(postings: &Vec<Vec<u8>>) -> Vec<u32> {
     idfs
 }
 
-fn join_scores(scores: &[u8], postings: Vec<Vec<u8>>, mut denominators: Vec<u32>, term_counts: &[u8], shard_id: usize, heap: &mut BinaryHeap<QueryMatch>) {
+fn join_scores(scores: &[u8], postings: Vec<Vec<u8>>, mut denominators: Vec<u32>, term_counts: &[u8], tid: usize, shard_id: usize, heap: &mut BinaryHeap<QueryMatch>) {
     let zero = u8x32::splat(0);
     for i in 0..denominators.len() {
         denominators[i] = 32 - denominators[i].next_power_of_two().leading_zeros() - 1;
@@ -86,7 +88,7 @@ fn join_scores(scores: &[u8], postings: Vec<Vec<u8>>, mut denominators: Vec<u32>
                 let id = i + j;
                 if val > heap.peek().unwrap().val && term_counts[id] >= 8 {
                     heap.pop();
-                    heap.push(QueryMatch { id, shard_id, val });
+                    heap.push(QueryMatch { id, tid, shard_id, val });
                 }
             }
         }
@@ -106,7 +108,7 @@ fn compute_max(scores: &[u8]) -> u8 {
     max
 }
 
-fn add_scores(mut postings: Vec<Vec<u8>>, term_counts: &[u8], heap: &mut BinaryHeap<QueryMatch>, shard_id: usize) {
+fn add_scores(mut postings: Vec<Vec<u8>>, term_counts: &[u8], heap: &mut BinaryHeap<QueryMatch>, tid: usize, shard_id: usize) {
     let mut idfs = compute_idfs(&postings);
     // println!("idfs: {:?}", idfs);
     let min_idf = *idfs.iter().min().unwrap();
@@ -123,7 +125,68 @@ fn add_scores(mut postings: Vec<Vec<u8>>, term_counts: &[u8], heap: &mut BinaryH
         .map(|idf| idf * denominator)
         .collect::<Vec<_>>();
     let scores = postings.pop().unwrap();
-    join_scores(&scores, postings, denominators, term_counts, shard_id, heap);
+    join_scores(&scores, postings, denominators, term_counts, tid, shard_id, heap);
+}
+
+#[derive(Clone)]
+struct QueryJob {
+    terms: Vec<String>,
+    heap: Arc<Mutex<BinaryHeap<QueryMatch>>>,
+    done_sender: Sender<usize>,
+}
+
+struct UrlJob {
+    shard_id: usize,
+    id: usize,
+    done_sender: Sender<(String, u8)>,
+}
+
+enum Job {
+    Query(QueryJob),
+    Url(UrlJob),
+}
+
+async fn handle_query(shards: &mut [IndexShard], mut job: QueryJob, tid: usize) {
+    let mut count = 0;
+    for (shard_id, shard) in shards.iter_mut().enumerate() {
+        let mut postings = Vec::new();
+        for term in &job.terms {
+            postings.push(shard.get_postings(term, SHARD_SIZE).await);
+        }
+        let postings = postings.into_iter().collect::<Option<Vec<_>>>();
+        if let Some(postings) = postings {
+            let term_counts = shard.term_counts();
+            let mut heap = job.heap.lock().unwrap();
+            add_scores(postings, term_counts, &mut heap, tid, shard_id);
+            count += 1;
+        }
+    }
+    job.done_sender.send(count).await.unwrap();
+}
+
+async fn handle_url(shards: &mut [IndexShard], mut job: UrlJob) {
+    let shard = &mut shards[job.shard_id];
+    let url = shard.get_url(job.id).await.unwrap();
+    let term_count = shard.term_counts()[job.id];
+    job.done_sender.send((url, term_count)).await.unwrap();
+}
+
+async fn shard_thread(tid: usize, chunk: Vec<(String, usize)>, index_dir: PathBuf, meta_dir: PathBuf, mut ready_sender: Sender<()>, mut work_receiver: Receiver<Job>) {
+    let mut shards = Vec::with_capacity(chunk.len());
+    for (core, idx) in chunk {
+        if let Some(shard) = IndexShard::open(&index_dir, &meta_dir, core, idx).await {
+            shards.push(shard);
+        }
+    }
+    ready_sender.send(()).await.unwrap();
+
+    loop {
+        let job = work_receiver.recv().await.unwrap();
+        match job {
+            Job::Query(job) => handle_query(&mut shards, job, tid).await,
+            Job::Url(job) => handle_url(&mut shards, job).await,
+        }
+    }
 }
 
 #[tokio::main]
@@ -134,90 +197,69 @@ async fn main() {
     let index_dir = top_dir.join("index");
     let meta_dir = top_dir.join("meta");
 
-    let post_dir: PathBuf = env::var("POST_DIR").unwrap().into();
-    fs::create_dir_all(&post_dir).unwrap();
-
     let idxs = IndexShard::find_idxs(&index_dir);
     println!("found {} idxs", idxs.len());
-    let mut shards = Vec::with_capacity(idxs.len());
-    for (core, idx) in idxs {
-        if idx == 0 {
-            println!("opening shard {}:{}", core, idx);
-        }
-        if let Some(shard) = IndexShard::open(&index_dir, &meta_dir, core, idx).await {
-            shards.push(Some(shard));
-        }
-    }
-    println!("finished opening {} shards", shards.len());
-
-    let n_shards = shards.len();
-
-    for _ in 0..20 {
-        let start = Instant::now();
-        let mut heap = BinaryHeap::new();
-        for i in 0..20 {
-            heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
-        }
-
-        let (sender, mut receiver) = channel(n_shards);
-
-        for (shard_id, shard) in shards.drain(0..).enumerate() {
-            let terms = terms.clone();
-            let mut sender = sender.clone();
-            tokio::spawn(async move {
-                // println!("spawning shard {}", shard_id);
-                let mut postings = Vec::new();
-                let mut shard = shard.unwrap();
-                for term in terms {
-                    postings.push(shard.get_postings(&term, SHARD_SIZE).await);
-                }
-                let postings = postings.into_iter().collect::<Option<Vec<_>>>();
-                let _res = sender.send((shard_id, shard, postings)).await;
-            });
-        }
-
-        for _ in 0..n_shards {
-            shards.push(None);
-        }
-
-        let mut count = 0;
-        for _ in 0..n_shards {
-            let (shard_id, shard, postings) = receiver.recv().await.unwrap();
-            // println!("read postings for shard {}, read {}", shard_id, count);
-            if let Some(postings) = postings {
-                let term_counts = shard.term_counts();
-                add_scores(postings, term_counts, &mut heap, shard_id);
-                count += 1;
-            }
-            shards[shard_id] = Some(shard);
-        }
-
-        println!("time to search: {:?}", start.elapsed());
-        println!("found postings in {} shards", count);
+    let shards_per_thread = (idxs.len() + N_THREADS - 1) / N_THREADS;
+    let chunks = idxs.chunks(shards_per_thread);
+    let (ready_sender, mut ready_receiver) = channel(N_THREADS);
+    let mut work_senders = Vec::new();
+    for (tid, chunk) in chunks.into_iter().enumerate() {
+        let (work_sender, work_receiver) = channel(1000);
+        work_senders.push(work_sender);
+        let chunk = chunk.to_vec();
+        let index_dir = index_dir.clone();
+        let meta_dir = meta_dir.clone();
+        let ready_sender = ready_sender.clone();
+        tokio::spawn(async move { shard_thread(tid, chunk, index_dir, meta_dir, ready_sender, work_receiver).await });
     }
 
-    // let results = heap.into_sorted_vec();
-    // for result in results {
-    //     let mut shard = shards[result.shard_id].lock().await;
-    //     let url = shard.get_url(result.id).unwrap();
-    //     println!("got url {}: {}, {}", url, result.val, shard.term_counts()[result.id]);
-    // }
+    for _ in 0..N_THREADS {
+        ready_receiver.recv().await;
+    }
 
-    // let start = Instant::now();
-    // for _ in 0..20 {
-    //     let mut heap = BinaryHeap::new();
-    //     for i in 0..20 {
-    //         heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
-    //     }
-    //     for (shard_id, shard) in shards.iter_mut().enumerate() {
-    //         let postings = terms.iter()
-    //             .map(|term| shard.get_postings(term, SHARD_SIZE))
-    //             .collect::<Option<Vec<_>>>();
-    //         if let Some(postings) = postings {
-    //             let term_counts = shard.term_counts();
-    //             add_scores(postings, term_counts, &mut heap, shard_id);
-    //         }
-    //     }
-    // }
-    // println!("time to search: {:?}", start.elapsed() / 20);
+    let start = Instant::now();
+    let mut heap = BinaryHeap::new();
+    for i in 0..20 {
+        heap.push(QueryMatch { id: i, shard_id: 0, val: 0, tid: 0 });
+    }
+    let heap = Arc::new(Mutex::new(heap));
+
+    let (done_sender, mut done_receiver) = channel(N_THREADS);
+
+    let job = QueryJob {
+        terms,
+        done_sender,
+        heap: heap.clone(),
+    };
+
+    for work_sender in &mut work_senders {
+        let job = job.clone();
+        let _res = work_sender.send(Job::Query(job)).await;
+    }
+
+    let mut count = 0;
+    for _ in 0..N_THREADS {
+        count += done_receiver.recv().await.unwrap();
+    }
+
+    println!("time to search: {:?}", start.elapsed());
+    println!("found postings in {} shards", count);
+
+    let heap = match Arc::try_unwrap(heap) {
+        Ok(heap) => heap.into_inner().unwrap(),
+        Err(_) => { println!("failed to get heap!"); return (); },
+    };
+    let results = heap.into_sorted_vec();
+    let mut done_receivers = Vec::with_capacity(N_THREADS);
+    for result in &results {
+        let (done_sender, done_receiver) = channel(1);
+        done_receivers.push(done_receiver);
+        let job = UrlJob { shard_id: result.shard_id, id: result.id, done_sender };
+        let _res = work_senders[result.tid].send(Job::Url(job)).await;
+    }
+
+    for (result, mut done_receiver) in results.iter().zip(done_receivers) {
+        let (url, term_count) = done_receiver.recv().await.unwrap();
+        println!("got url {}: {}, {}", url, result.val, term_count);
+    }
 }

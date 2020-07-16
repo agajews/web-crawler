@@ -401,7 +401,7 @@ impl<T: Serialize + DeserializeOwned> TaskHandler<T> {
 pub struct IndexShard {
     index: tokio::fs::File,
     index_headers: Vec<(u64, (u32, u32))>,
-    urls: fs::File,
+    urls: tokio::fs::File,
     url_headers: Vec<(u32, u32)>,
     n_urls: usize,
     term_counts: Vec<u8>,
@@ -422,11 +422,11 @@ impl IndexShard {
             Some(file) => file,
             None => { println!("failed to read index for {}:{}", core, idx); return None; },
         };
-        let mut urls = match fs::File::open(&meta_path.join("urls")) {
+        let mut urls = match tokio::fs::File::open(&meta_path.join("urls")).await {
             Ok(file) => file,
             Err(err) => { println!("failed to read urls for {}:{}, {}", core, idx, err); return None; },
         };
-        let (n_urls, url_headers) = match Self::deserialize_url_headers(&mut urls) {
+        let (n_urls, url_headers) = match Self::deserialize_url_headers(&mut urls).await {
             Some(headers) => headers,
             None => { println!("failed to deserialize url headers for {}:{}", core, idx); return None; },
         };
@@ -453,12 +453,12 @@ impl IndexShard {
         Some(headers)
     }
 
-    fn deserialize_url_headers(urls: &mut fs::File) -> Option<(usize, Vec<(u32, u32)>)> {
+    async fn deserialize_url_headers(urls: &mut tokio::fs::File) -> Option<(usize, Vec<(u32, u32)>)> {
         let mut bytes = [0; 4];
-        urls.read_exact(&mut bytes).ok()?;
+        urls.read_exact(&mut bytes).await.ok()?;
         let n_urls = u32::from_be_bytes(bytes) as usize;
         let mut bytes = vec![0; n_urls * 8];
-        urls.read_exact(&mut bytes).ok()?;
+        urls.read_exact(&mut bytes).await.ok()?;
         let mut headers = Vec::with_capacity(n_urls);
         let mut i = 0;
         for _ in 0..n_urls {
@@ -511,13 +511,13 @@ impl IndexShard {
         RunEncoder::deserialize(bytes, size)
     }
 
-    pub fn get_url(&mut self, idx: usize) -> Option<String> {
+    pub async fn get_url(&mut self, idx: usize) -> Option<String> {
         let (offset, len) = self.url_headers.get(idx)?;
         let header_len = 4 + self.n_urls * 8;
         let offset = header_len + *offset as usize;
-        self.urls.seek(SeekFrom::Start(offset as u64)).ok()?;
+        self.urls.seek(SeekFrom::Start(offset as u64)).await.ok()?;
         let mut bytes = vec![0; *len as usize];
-        self.urls.read_exact(&mut bytes).ok()?;
+        self.urls.read_exact(&mut bytes).await.ok()?;
         Some(String::from_utf8(bytes).ok()?)
     }
 }
