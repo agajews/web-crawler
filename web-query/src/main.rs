@@ -187,7 +187,7 @@ fn main() {
     let start = Instant::now();
     for _ in 0..20 {
         for shard in &mut shards {
-            let _postings = shard.get_postings(query, SHARD_SIZE);
+            let _postings = shard.get_postings(query, SHARD_SIZE).unwrap();
         }
     }
     println!("time to deserialize: {:?}", start.elapsed() / 20);
