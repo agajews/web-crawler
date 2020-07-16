@@ -231,8 +231,8 @@ async fn main() {
         let (done_sender, mut done_receiver) = channel(N_THREADS);
 
         let job = QueryJob {
-            terms,
             done_sender,
+            terms: terms.clone(),
             heap: heap.clone(),
         };
 
