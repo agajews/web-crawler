@@ -165,7 +165,7 @@ async fn main() {
             let terms = terms.clone();
             let mut sender = sender.clone();
             tokio::spawn(async move {
-                println!("spawning shard {}", shard_id);
+                // println!("spawning shard {}", shard_id);
                 let mut postings = Vec::new();
                 let mut shard = shard.unwrap();
                 for term in terms {
