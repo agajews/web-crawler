@@ -173,8 +173,10 @@ fn main() {
     }
 
     let start = Instant::now();
+    let mut count = 0;
     for _ in 0..20 {
         for entry in fs::read_dir(&post_dir).unwrap() {
+            count += 1;
             let path = entry.unwrap().path();
             let bytes = fs::read(path).unwrap();
             if let None = RunEncoder::deserialize(bytes, SHARD_SIZE) {
@@ -183,14 +185,19 @@ fn main() {
         }
     }
     println!("time to deserialize: {:?}", start.elapsed() / 20);
+    println!("found postings in {} shards", count / 20);
 
     let start = Instant::now();
+    let mut count = 0;
     for _ in 0..20 {
         for shard in &mut shards {
-            let _postings = shard.get_postings(query, SHARD_SIZE).unwrap();
+            if let Some(postings) = shard.get_postings(query, SHARD_SIZE) {
+                count += 1;
+            }
         }
     }
     println!("time to deserialize: {:?}", start.elapsed() / 20);
+    println!("found postings in {} shards", count / 20);
 
     // let start = Instant::now();
     // let mut heap = BinaryHeap::new();
