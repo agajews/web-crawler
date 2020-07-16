@@ -502,12 +502,12 @@ impl IndexShard {
 
     pub async fn get_postings(&mut self, term: &str, size: usize) -> Option<Vec<u8>> {
         let (offset, len) = self.search_for_term(hash64(term))?;
-        println!("seeking offset {}", offset);
+        // println!("seeking offset {}", offset);
         self.index.seek(SeekFrom::Start(offset as u64)).await.ok()?;
         let mut bytes = vec![0; len as usize];
-        println!("reading {} bytes", len);
+        // println!("reading {} bytes", len);
         self.index.read_exact(&mut bytes).await.ok()?;
-        println!("deserializing...");
+        // println!("deserializing...");
         RunEncoder::deserialize(bytes, size)
     }
 
