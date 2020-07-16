@@ -183,8 +183,7 @@ fn shard_thread(tid: usize, chunk: Vec<(String, usize)>, index_dir: PathBuf, met
     }
     ready_sender.send(()).unwrap();
 
-    loop {
-        let job = work_receiver.recv().unwrap();
+    for job in work_receiver {
         match job {
             Job::Query(job) => handle_query(&mut shards, job, tid),
             Job::Url(job) => handle_url(&mut shards, job),
