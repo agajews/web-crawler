@@ -12,6 +12,7 @@ sudo yum install -y nfs-utils NetworkManager
 # sudo mount 10.0.0.5:/web-crawler-fs /mnt/web-crawler-fs
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 source $HOME/.cargo/env
+rustup default nightly
 cargo build --release
 cargo install flamegraph
 sudo su -c 'echo "	*	soft	nofile	1000000" >> /etc/security/limits.conf'

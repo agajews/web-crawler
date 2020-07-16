@@ -15,6 +15,8 @@ use std::io::SeekFrom;
 use std::convert::TryInto;
 use fasthash::metro::hash64;
 
+const MIN_RUN_LEN: usize = 32;
+
 pub struct RunEncoder {
     len: usize,
     encoded: Vec<u8>,
@@ -36,7 +38,7 @@ impl RunEncoder {
 
     pub fn add(&mut self, idx: usize, byte: u8) {
         assert!(idx >= self.len);
-        if idx - self.len < 3 {
+        if idx - self.len < MIN_RUN_LEN {
             for _ in 0..(idx - self.len) {
                 self.push(0);
             }
@@ -66,7 +68,7 @@ impl RunEncoder {
             Some(prev) if *prev == byte => self.run.push(byte),
             None => self.run.push(byte),
             _ => {
-                if self.run.len() < 3 {
+                if self.run.len() < MIN_RUN_LEN {
                     self.non_run.append(&mut self.run);
                 } else {
                     self.sync_segs();
@@ -77,7 +79,7 @@ impl RunEncoder {
     }
 
     fn flush(&mut self) {
-        if self.run.len() < 3 {
+        if self.run.len() < MIN_RUN_LEN {
             self.non_run.append(&mut self.run);
         }
         self.sync_segs();
@@ -130,10 +132,6 @@ impl RunEncoder {
                     return None;
                 }
                 decoded[k..(k + seg_len)].copy_from_slice(&serialized[i..(i + seg_len)]);
-                // for j in 0..(seg_len as usize) {
-                //     decoded[k] = *serialized.get(i + j)?;
-                //     k += 1;
-                // }
                 i += seg_len;
                 k += seg_len;
             }
