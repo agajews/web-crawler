@@ -183,55 +183,52 @@ fn main() {
     // println!("found postings in {} shards", count / 20);
 
     let start = Instant::now();
-    let mut heap = BinaryHeap::new();
-    for i in 0..20 {
-        heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
-    }
     let mut count = 0;
-    for entry in fs::read_dir(&post_dir).unwrap() {
-        count += 1;
-        let path = entry.unwrap().path();
-        let bytes = fs::read(&path).unwrap();
-        let postings = RunEncoder::deserialize(bytes, SHARD_SIZE).unwrap();
-        let shard_id = path.file_name().unwrap().to_str().unwrap().parse::<usize>().unwrap();
-        let term_counts = shards[shard_id].term_counts();
-        add_scores(vec![postings], term_counts, &mut heap, shard_id);
-    }
-    println!("time to search: {:?}", start.elapsed());
-    println!("found postings in {} shards", count);
-
-    let results = heap.into_sorted_vec();
-    for result in results {
-        let shard = &mut shards[result.shard_id];
-        let url = shard.get_url(result.id).unwrap();
-        println!("got url {}: {}, {}", url, result.val, shard.term_counts()[result.id]);
-    }
-
-    let start = Instant::now();
-    let mut heap = BinaryHeap::new();
-    for i in 0..20 {
-        heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
-    }
-    let mut count = 0;
-    for (shard_id, shard) in shards.iter_mut().enumerate() {
-        let postings = terms.iter()
-            .map(|term| shard.get_postings(term, SHARD_SIZE))
-            .collect::<Option<Vec<_>>>();
-        if let Some(postings) = postings {
-            let term_counts = shard.term_counts();
-            add_scores(postings, term_counts, &mut heap, shard_id);
+    for _ in 0..20 {
+        let mut heap = BinaryHeap::new();
+        for i in 0..20 {
+            heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
+        }
+        for entry in fs::read_dir(&post_dir).unwrap() {
             count += 1;
+            let path = entry.unwrap().path();
+            let bytes = fs::read(&path).unwrap();
+            let postings = RunEncoder::deserialize(bytes, SHARD_SIZE).unwrap();
+            let shard_id = path.file_name().unwrap().to_str().unwrap().parse::<usize>().unwrap();
+            let term_counts = shards[shard_id].term_counts();
+            add_scores(vec![postings], term_counts, &mut heap, shard_id);
         }
     }
-    println!("time to search: {:?}", start.elapsed());
-    println!("found postings in {} shards", count);
+    println!("time to search: {:?}", start.elapsed() / 20);
+    println!("found postings in {} shards", count / 20);
 
-    let results = heap.into_sorted_vec();
-    for result in results {
-        let shard = &mut shards[result.shard_id];
-        let url = shard.get_url(result.id).unwrap();
-        println!("got url {}: {}, {}", url, result.val, shard.term_counts()[result.id]);
+    let start = Instant::now();
+    let mut count = 0;
+    for _ in 0..20 {
+        let mut heap = BinaryHeap::new();
+        for i in 0..20 {
+            heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
+        }
+        for (shard_id, shard) in shards.iter_mut().enumerate() {
+            let postings = terms.iter()
+                .map(|term| shard.get_postings(term, SHARD_SIZE))
+                .collect::<Option<Vec<_>>>();
+            if let Some(postings) = postings {
+                let term_counts = shard.term_counts();
+                add_scores(postings, term_counts, &mut heap, shard_id);
+                count += 1;
+            }
+        }
     }
+    println!("time to search: {:?}", start.elapsed() / 20);
+    println!("found postings in {} shards", count / 20);
+
+    // let results = heap.into_sorted_vec();
+    // for result in results {
+    //     let shard = &mut shards[result.shard_id];
+    //     let url = shard.get_url(result.id).unwrap();
+    //     println!("got url {}: {}, {}", url, result.val, shard.term_counts()[result.id]);
+    // }
 
     // let start = Instant::now();
     // let mut count = 0;
