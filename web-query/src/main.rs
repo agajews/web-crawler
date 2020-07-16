@@ -156,11 +156,14 @@ fn handle_query(shards: &mut [IndexShard], job: QueryJob, tid: usize) {
         }
         let postings = postings.into_iter().collect::<Option<Vec<_>>>();
         if let Some(postings) = postings {
-            let term_counts = shard.term_counts();
-            let mut heap = job.heap.lock().unwrap();
-            add_scores(postings, term_counts, &mut heap, tid, shard_id);
             count += 1;
         }
+        // if let Some(postings) = postings {
+        //     let term_counts = shard.term_counts();
+        //     let mut heap = job.heap.lock().unwrap();
+        //     add_scores(postings, term_counts, &mut heap, tid, shard_id);
+        //     count += 1;
+        // }
     }
     job.done_sender.send(count).unwrap();
 }
@@ -252,19 +255,19 @@ fn main() {
         println!("time to search: {:?}", start.elapsed());
         println!("found postings in {} shards", count);
 
-        let mut results = heap.lock().unwrap().drain().collect::<Vec<_>>();
-        results.sort();
-        let mut done_receivers = Vec::with_capacity(n_threads);
-        for result in &results {
-            let (done_sender, done_receiver) = channel();
-            done_receivers.push(done_receiver);
-            let job = UrlJob { shard_id: result.shard_id, id: result.id, done_sender };
-            work_senders[result.tid].send(Job::Url(job)).unwrap();
-        }
+        // let mut results = heap.lock().unwrap().drain().collect::<Vec<_>>();
+        // results.sort();
+        // let mut done_receivers = Vec::with_capacity(n_threads);
+        // for result in &results {
+        //     let (done_sender, done_receiver) = channel();
+        //     done_receivers.push(done_receiver);
+        //     let job = UrlJob { shard_id: result.shard_id, id: result.id, done_sender };
+        //     work_senders[result.tid].send(Job::Url(job)).unwrap();
+        // }
 
-        for (result, done_receiver) in results.iter().zip(done_receivers) {
-            let (url, term_count) = done_receiver.recv().unwrap();
-            println!("got url {}: {}, {}", url, result.val, term_count);
-        }
+        // for (result, done_receiver) in results.iter().zip(done_receivers) {
+        //     let (url, term_count) = done_receiver.recv().unwrap();
+        //     println!("got url {}: {}, {}", url, result.val, term_count);
+        // }
     }
 }
