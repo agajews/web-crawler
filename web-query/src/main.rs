@@ -5,8 +5,7 @@ use std::collections::BinaryHeap;
 use std::time::Instant;
 use packed_simd::*;
 use std::fs;
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use std::sync::mpsc::channel;
 
 const SHARD_SIZE: usize = 100000;
 
@@ -146,10 +145,12 @@ async fn main() {
             println!("opening shard {}:{}", core, idx);
         }
         if let Some(shard) = IndexShard::open(&index_dir, &meta_dir, core, idx).await {
-            shards.push(Arc::new(Mutex::new(shard)));
+            shards.push(Some(shard));
         }
     }
     println!("finished opening {} shards", shards.len());
+
+    let n_shards = shards.len();
 
     for _ in 0..20 {
         let start = Instant::now();
@@ -158,30 +159,36 @@ async fn main() {
             heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
         }
 
-        let mut futures = Vec::new();
-        for shard in shards.iter() {
+        let (sender, receiver) = channel();
+
+        for (shard_id, shard) in shards.drain(0..).enumerate() {
             let terms = terms.clone();
-            let shard = shard.clone();
-            futures.push(tokio::spawn(async move {
-                let mut shard = shard.lock().await;
+            let sender = sender.clone();
+            tokio::spawn(async move {
                 let mut postings = Vec::new();
+                let mut shard = shard.unwrap();
                 for term in terms {
                     postings.push(shard.get_postings(&term, SHARD_SIZE).await);
                 }
-                postings.into_iter().collect::<Option<Vec<_>>>()
-            }));
+                let postings = postings.into_iter().collect::<Option<Vec<_>>>();
+                sender.send((shard_id, shard, postings)).unwrap();
+            });
+        }
+
+        for _ in 0..n_shards {
+            shards.push(None);
         }
 
         let mut count = 0;
-        for (shard_id, postings_fut) in futures.into_iter().enumerate() {
-            let postings = postings_fut.await.unwrap();
+        for (shard_id, shard, postings) in receiver {
             if let Some(postings) = postings {
-                let shard = shards[shard_id].lock().await;
                 let term_counts = shard.term_counts();
                 add_scores(postings, term_counts, &mut heap, shard_id);
+                shards[shard_id] = Some(shard);
                 count += 1;
             }
         }
+
         println!("time to search: {:?}", start.elapsed());
         println!("found postings in {} shards", count);
     }
