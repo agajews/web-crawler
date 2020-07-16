@@ -15,7 +15,7 @@ use std::io::SeekFrom;
 use std::convert::TryInto;
 use fasthash::metro::hash64;
 
-const MIN_RUN_LEN: usize = 32;
+const MIN_RUN_LEN: usize = 3;
 
 pub struct RunEncoder {
     len: usize,
