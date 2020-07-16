@@ -181,6 +181,7 @@ async fn main() {
 
         let mut count = 0;
         for (shard_id, shard, postings) in receiver {
+            println!("read postings for shard {}", shard_id);
             if let Some(postings) = postings {
                 let term_counts = shard.term_counts();
                 add_scores(postings, term_counts, &mut heap, shard_id);
