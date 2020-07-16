@@ -7,6 +7,7 @@ use packed_simd::*;
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::process::Command;
 
 const SHARD_SIZE: usize = 100000;
 
@@ -220,46 +221,50 @@ fn main() {
         ready_receiver.recv().unwrap();
     }
 
-    let start = Instant::now();
-    let mut heap = BinaryHeap::new();
-    for i in 0..20 {
-        heap.push(QueryMatch { id: i, shard_id: 0, val: 0, tid: 0 });
-    }
-    let heap = Arc::new(Mutex::new(heap));
+    for _ in 0..20 {
+        let start = Instant::now();
+        let mut heap = BinaryHeap::new();
+        for i in 0..20 {
+            heap.push(QueryMatch { id: i, shard_id: 0, val: 0, tid: 0 });
+        }
+        let heap = Arc::new(Mutex::new(heap));
 
-    let (done_sender, done_receiver) = channel();
-
-    let job = QueryJob {
-        done_sender,
-        terms: terms.clone(),
-        heap: heap.clone(),
-    };
-
-    for work_sender in &mut work_senders {
-        let job = job.clone();
-        work_sender.send(Job::Query(job)).unwrap();
-    }
-
-    let mut count = 0;
-    for _ in 0..n_threads {
-        count += done_receiver.recv().unwrap();
-    }
-
-    println!("time to search: {:?}", start.elapsed());
-    println!("found postings in {} shards", count);
-
-    let mut results = heap.lock().unwrap().drain().collect::<Vec<_>>();
-    results.sort();
-    let mut done_receivers = Vec::with_capacity(n_threads);
-    for result in &results {
         let (done_sender, done_receiver) = channel();
-        done_receivers.push(done_receiver);
-        let job = UrlJob { shard_id: result.shard_id, id: result.id, done_sender };
-        work_senders[result.tid].send(Job::Url(job)).unwrap();
-    }
 
-    for (result, done_receiver) in results.iter().zip(done_receivers) {
-        let (url, term_count) = done_receiver.recv().unwrap();
-        println!("got url {}: {}, {}", url, result.val, term_count);
+        let job = QueryJob {
+            done_sender,
+            terms: terms.clone(),
+            heap: heap.clone(),
+        };
+
+        for work_sender in &mut work_senders {
+            let job = job.clone();
+            work_sender.send(Job::Query(job)).unwrap();
+        }
+
+        let mut count = 0;
+        for _ in 0..n_threads {
+            count += done_receiver.recv().unwrap();
+        }
+
+        println!("time to search: {:?}", start.elapsed());
+        println!("found postings in {} shards", count);
+
+        let mut results = heap.lock().unwrap().drain().collect::<Vec<_>>();
+        results.sort();
+        let mut done_receivers = Vec::with_capacity(n_threads);
+        for result in &results {
+            let (done_sender, done_receiver) = channel();
+            done_receivers.push(done_receiver);
+            let job = UrlJob { shard_id: result.shard_id, id: result.id, done_sender };
+            work_senders[result.tid].send(Job::Url(job)).unwrap();
+        }
+
+        for (result, done_receiver) in results.iter().zip(done_receivers) {
+            let (url, term_count) = done_receiver.recv().unwrap();
+            println!("got url {}: {}, {}", url, result.val, term_count);
+        }
+
+        Command::new("sudo").arg("su").arg("-c").arg("'echo 1 > /proc/sys/vm/drop_caches'").output().unwrap();
     }
 }
