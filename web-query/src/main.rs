@@ -8,7 +8,7 @@ use tokio::sync::mpsc::{channel, Sender, Receiver};
 use std::sync::{Arc, Mutex};
 
 const SHARD_SIZE: usize = 100000;
-const N_THREADS: usize = 32;
+const N_THREADS: usize = 16;
 
 #[derive(Eq, PartialEq)]
 struct QueryMatch {
