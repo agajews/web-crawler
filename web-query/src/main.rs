@@ -181,7 +181,8 @@ async fn main() {
         }
 
         let mut count = 0;
-        while let Some((shard_id, shard, postings)) = receiver.recv().await {
+        for _ in 0..n_shards {
+            let (shard_id, shard, postings) = receiver.recv().await.unwrap();
             println!("read postings for shard {}, read {}", shard_id, count);
             if let Some(postings) = postings {
                 let term_counts = shard.term_counts();
