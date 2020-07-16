@@ -399,16 +399,16 @@ impl<T: Serialize + DeserializeOwned> TaskHandler<T> {
 }
 
 pub struct IndexShard {
-    index: tokio::fs::File,
+    index: fs::File,
     index_headers: Vec<(u64, (u32, u32))>,
-    urls: tokio::fs::File,
+    urls: fs::File,
     url_headers: Vec<(u32, u32)>,
     n_urls: usize,
     term_counts: Vec<u8>,
 }
 
 impl IndexShard {
-    pub async fn open<P: Into<PathBuf>, Q: Into<PathBuf>>(index_dir: P, meta_dir: Q, core: String, idx: usize) -> Option<IndexShard> {
+    pub fn open<P: Into<PathBuf>, Q: Into<PathBuf>>(index_dir: P, meta_dir: Q, core: String, idx: usize) -> Option<IndexShard> {
         let index_dir = index_dir.into().join(&core).join(format!("db{}", idx));
         let meta_path = meta_dir.into().join(&core).join(format!("db{}", idx));
         let index_headers = match fs::read(index_dir.join("metadata")).ok() {
@@ -418,15 +418,15 @@ impl IndexShard {
             },
             None => { println!("failed to read headers for {}:{}", core, idx); return None; },
         };
-        let index = match tokio::fs::File::open(index_dir.join("data")).await.ok() {
+        let index = match fs::File::open(index_dir.join("data")).ok() {
             Some(file) => file,
             None => { println!("failed to read index for {}:{}", core, idx); return None; },
         };
-        let mut urls = match tokio::fs::File::open(&meta_path.join("urls")).await {
+        let mut urls = match fs::File::open(&meta_path.join("urls")) {
             Ok(file) => file,
             Err(err) => { println!("failed to read urls for {}:{}, {}", core, idx, err); return None; },
         };
-        let (n_urls, url_headers) = match Self::deserialize_url_headers(&mut urls).await {
+        let (n_urls, url_headers) = match Self::deserialize_url_headers(&mut urls) {
             Some(headers) => headers,
             None => { println!("failed to deserialize url headers for {}:{}", core, idx); return None; },
         };
@@ -453,12 +453,12 @@ impl IndexShard {
         Some(headers)
     }
 
-    async fn deserialize_url_headers(urls: &mut tokio::fs::File) -> Option<(usize, Vec<(u32, u32)>)> {
+    fn deserialize_url_headers(urls: &mut fs::File) -> Option<(usize, Vec<(u32, u32)>)> {
         let mut bytes = [0; 4];
-        urls.read_exact(&mut bytes).await.ok()?;
+        urls.read_exact(&mut bytes).ok()?;
         let n_urls = u32::from_be_bytes(bytes) as usize;
         let mut bytes = vec![0; n_urls * 8];
-        urls.read_exact(&mut bytes).await.ok()?;
+        urls.read_exact(&mut bytes).ok()?;
         let mut headers = Vec::with_capacity(n_urls);
         let mut i = 0;
         for _ in 0..n_urls {
@@ -500,24 +500,24 @@ impl IndexShard {
         Some((offset, len))
     }
 
-    pub async fn get_postings(&mut self, term: &str, size: usize) -> Option<Vec<u8>> {
+    pub fn get_postings(&mut self, term: &str, size: usize) -> Option<Vec<u8>> {
         let (offset, len) = self.search_for_term(hash64(term))?;
         // println!("seeking offset {}", offset);
-        self.index.seek(SeekFrom::Start(offset as u64)).await.ok()?;
+        self.index.seek(SeekFrom::Start(offset as u64)).ok()?;
         let mut bytes = vec![0; len as usize];
         // println!("reading {} bytes", len);
-        self.index.read_exact(&mut bytes).await.ok()?;
+        self.index.read_exact(&mut bytes).ok()?;
         // println!("deserializing...");
         RunEncoder::deserialize(bytes, size)
     }
 
-    pub async fn get_url(&mut self, idx: usize) -> Option<String> {
+    pub fn get_url(&mut self, idx: usize) -> Option<String> {
         let (offset, len) = self.url_headers.get(idx)?;
         let header_len = 4 + self.n_urls * 8;
         let offset = header_len + *offset as usize;
-        self.urls.seek(SeekFrom::Start(offset as u64)).await.ok()?;
+        self.urls.seek(SeekFrom::Start(offset as u64)).ok()?;
         let mut bytes = vec![0; *len as usize];
-        self.urls.read_exact(&mut bytes).await.ok()?;
+        self.urls.read_exact(&mut bytes).ok()?;
         Some(String::from_utf8(bytes).ok()?)
     }
 }
