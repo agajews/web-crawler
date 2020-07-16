@@ -8,7 +8,6 @@ use tokio::sync::mpsc::{channel, Sender, Receiver};
 use std::sync::{Arc, Mutex};
 
 const SHARD_SIZE: usize = 100000;
-const N_THREADS: usize = 1;
 
 #[derive(Eq, PartialEq)]
 struct QueryMatch {
@@ -194,7 +193,9 @@ async fn shard_thread(tid: usize, chunk: Vec<(String, usize)>, index_dir: PathBu
 
 #[tokio::main]
 async fn main() {
-    let terms = env::args().skip(1).collect::<Vec<_>>();
+    let args = env::args().skip(1).collect::<Vec<_>>();
+    let n_threads = args[0].parse::<usize>().unwrap();
+    let terms = args[1..].to_vec();
 
     let top_dir: PathBuf = env::var("CRAWLER_DIR").unwrap().into();
     let index_dir = top_dir.join("index");
@@ -202,9 +203,9 @@ async fn main() {
 
     let idxs = IndexShard::find_idxs(&index_dir);
     println!("found {} idxs", idxs.len());
-    let shards_per_thread = (idxs.len() + N_THREADS - 1) / N_THREADS;
+    let shards_per_thread = (idxs.len() + n_threads - 1) / n_threads;
     let chunks = idxs.chunks(shards_per_thread);
-    let (ready_sender, mut ready_receiver) = channel(N_THREADS);
+    let (ready_sender, mut ready_receiver) = channel(n_threads);
     let mut work_senders = Vec::new();
     for (tid, chunk) in chunks.into_iter().enumerate() {
         let (work_sender, work_receiver) = channel(1000);
@@ -216,7 +217,7 @@ async fn main() {
         tokio::spawn(async move { shard_thread(tid, chunk, index_dir, meta_dir, ready_sender, work_receiver).await });
     }
 
-    for _ in 0..N_THREADS {
+    for _ in 0..n_threads {
         ready_receiver.recv().await;
     }
 
@@ -227,7 +228,7 @@ async fn main() {
     }
     let heap = Arc::new(Mutex::new(heap));
 
-    let (done_sender, mut done_receiver) = channel(N_THREADS);
+    let (done_sender, mut done_receiver) = channel(n_threads);
 
     let job = QueryJob {
         done_sender,
@@ -241,7 +242,7 @@ async fn main() {
     }
 
     let mut count = 0;
-    for _ in 0..N_THREADS {
+    for _ in 0..n_threads {
         count += done_receiver.recv().await.unwrap();
     }
 
@@ -250,7 +251,7 @@ async fn main() {
 
     let mut results = heap.lock().unwrap().drain().collect::<Vec<_>>();
     results.sort();
-    let mut done_receivers = Vec::with_capacity(N_THREADS);
+    let mut done_receivers = Vec::with_capacity(n_threads);
     for result in &results {
         let (done_sender, done_receiver) = channel(1);
         done_receivers.push(done_receiver);
