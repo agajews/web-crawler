@@ -5,7 +5,7 @@ use std::collections::BinaryHeap;
 use std::time::Instant;
 use packed_simd::*;
 use std::fs;
-use std::sync::mpsc::channel;
+use tokio::sync::mpsc::channel;
 
 const SHARD_SIZE: usize = 100000;
 
@@ -159,11 +159,11 @@ async fn main() {
             heap.push(QueryMatch { id: i, shard_id: 0, val: 0 });
         }
 
-        let (sender, receiver) = channel();
+        let (sender, mut receiver) = channel(n_shards);
 
         for (shard_id, shard) in shards.drain(0..).enumerate() {
             let terms = terms.clone();
-            let sender = sender.clone();
+            let mut sender = sender.clone();
             tokio::spawn(async move {
                 println!("spawning shard {}", shard_id);
                 let mut postings = Vec::new();
@@ -172,7 +172,7 @@ async fn main() {
                     postings.push(shard.get_postings(&term, SHARD_SIZE).await);
                 }
                 let postings = postings.into_iter().collect::<Option<Vec<_>>>();
-                sender.send((shard_id, shard, postings)).unwrap();
+                let _res = sender.send((shard_id, shard, postings)).await;
             });
         }
 
@@ -181,7 +181,7 @@ async fn main() {
         }
 
         let mut count = 0;
-        for (shard_id, shard, postings) in receiver {
+        while let Some((shard_id, shard, postings)) = receiver.recv().await {
             println!("read postings for shard {}", shard_id);
             if let Some(postings) = postings {
                 let term_counts = shard.term_counts();
