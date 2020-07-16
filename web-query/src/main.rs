@@ -187,9 +187,9 @@ async fn main() {
             if let Some(postings) = postings {
                 let term_counts = shard.term_counts();
                 add_scores(postings, term_counts, &mut heap, shard_id);
-                shards[shard_id] = Some(shard);
                 count += 1;
             }
+            shards[shard_id] = Some(shard);
         }
 
         println!("time to search: {:?}", start.elapsed());
