@@ -1,5 +1,5 @@
 [package]
-name = "web-query"
+name = "preprocessor"
 version = "0.1.0"
 authors = ["Alex Gajewski <agajews@gmail.com>"]
 edition = "2018"

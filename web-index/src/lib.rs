@@ -242,7 +242,7 @@ impl DiskMultiMap {
         self.dir.join(format!("db{}", idx))
     }
 
-    fn serialize_headers(offsets: BTreeMap<u64, (u32, u32)>) -> Vec<u8> {
+    pub fn serialize_headers(offsets: BTreeMap<u64, (u32, u32)>) -> Vec<u8> {
         let offsets = offsets.iter().collect::<Vec<_>>();
         let mut encoded = Vec::with_capacity(4 + 16 * offsets.len());
         encoded.extend_from_slice(&(offsets.len() as u32).to_be_bytes());
@@ -254,19 +254,28 @@ impl DiskMultiMap {
         encoded
     }
 
-    async fn dump_cache(cache: BTreeMap<String, RunEncoder>, path: PathBuf) {
-        println!("writing to disk: {:?}", path);
-        fs::create_dir_all(&path).unwrap();
+    pub fn serialize_cache(cache: Vec<(u64, RunEncoder)>) -> (Vec<u8>, Vec<u8>) {
         let mut data = Vec::new();
         let mut metadata: BTreeMap<u64, (u32, u32)> = BTreeMap::new();
         let mut offset: u32 = 0;
         for (key, encoder) in cache {
             let bytes = encoder.serialize();
-            metadata.insert(hash64(key), (offset, bytes.len() as u32));
+            metadata.insert(key, (offset, bytes.len() as u32));
             data.extend_from_slice(&bytes);
             offset += bytes.len() as u32;
         }
-        sync_write(path.join("metadata"), &Self::serialize_headers(metadata)).await;
+        let metadata = Self::serialize_headers(metadata);
+        (metadata, data)
+    }
+
+    async fn dump_cache(cache: BTreeMap<String, RunEncoder>, path: PathBuf) {
+        println!("writing to disk: {:?}", path);
+        fs::create_dir_all(&path).unwrap();
+        let cache = cache.into_iter()
+            .map(|(key, val)| (hash64(key), val))
+            .collect::<Vec<_>>();
+        let (metadata, data) = Self::serialize_cache(cache);
+        sync_write(path.join("metadata"), &metadata).await;
         sync_write(path.join("data"), &data).await;
         println!("finished writing to {:?}", path);
     }
@@ -320,7 +329,7 @@ impl DiskMeta {
         });
     }
 
-    fn dump_urls(url_path: PathBuf, urls: Vec<String>) {
+    pub fn serialize_urls(urls: Vec<String>) -> Vec<u8> {
         let mut encoded = Vec::new();
         encoded.extend_from_slice(&(urls.len() as u32).to_be_bytes());
         let mut i: u32 = 0;
@@ -332,7 +341,11 @@ impl DiskMeta {
         for url in urls {
             encoded.extend_from_slice(url.as_bytes());
         }
-        Self::write_and_sync(url_path, encoded);
+        encoded
+    }
+
+    fn dump_urls(url_path: PathBuf, urls: Vec<String>) {
+        Self::write_and_sync(url_path, Self::serialize_urls(urls));
     }
 
     fn write_and_sync(path: PathBuf, bytes: Vec<u8>) {
@@ -494,14 +507,21 @@ impl IndexShard {
         &self.term_counts
     }
 
+    pub fn keys(&self) -> Vec<u64> {
+        let keys = self.index_headers.iter()
+            .map(|(key, _)| *key)
+            .collect::<Vec<_>>();
+        keys
+    }
+
     fn search_for_term(&self, key: u64) -> Option<(u32, u32)> {
         let idx = self.index_headers.binary_search_by_key(&key, |(k, (_, _))| *k).ok()?;
         let (_, (offset, len)) = self.index_headers[idx];
         Some((offset, len))
     }
 
-    pub fn get_postings(&mut self, term: &str, size: usize) -> Option<Vec<u8>> {
-        let (offset, len) = self.search_for_term(hash64(term))?;
+    pub fn get_postings(&mut self, term: u64, size: usize) -> Option<Vec<u8>> {
+        let (offset, len) = self.search_for_term(term)?;
         // println!("seeking offset {}", offset);
         self.index.seek(SeekFrom::Start(offset as u64)).ok()?;
         let mut bytes = vec![0; len as usize];
