@@ -520,8 +520,8 @@ impl IndexShard {
         Some((offset, len))
     }
 
-    pub fn get_postings(&mut self, term: u64, size: usize) -> Option<Vec<u8>> {
-        let (offset, len) = self.search_for_term(term)?;
+    pub fn get_postings(&mut self, term: &str, size: usize) -> Option<Vec<u8>> {
+        let (offset, len) = self.search_for_term(hash64(term))?;
         // println!("seeking offset {}", offset);
         self.index.seek(SeekFrom::Start(offset as u64)).ok()?;
         let mut bytes = vec![0; len as usize];

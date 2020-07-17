@@ -1,12 +1,19 @@
+#![feature(proc_macro_hygiene, decl_macro)]
+
+#[macro_use] extern crate rocket;
+
+use rocket::State;
 use web_index::IndexShard;
 use std::path::PathBuf;
 use std::env;
 use std::collections::BinaryHeap;
-use std::time::Instant;
+use std::time::{Instant, Duration};
 use packed_simd::*;
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use rocket_contrib::templates::Template;
+use serde::Serialize;
 
 const SHARD_SIZE: usize = 100000;
 
@@ -191,11 +198,7 @@ fn shard_thread(tid: usize, chunk: Vec<(String, usize)>, index_dir: PathBuf, met
     }
 }
 
-fn main() {
-    let args = env::args().skip(1).collect::<Vec<_>>();
-    let n_threads = args[0].parse::<usize>().unwrap();
-    let terms = args[1..].to_vec();
-
+fn spawn_threads(n_threads: usize) -> Vec<Sender<Job>> {
     let top_dir: PathBuf = env::var("CRAWLER_DIR").unwrap().into();
     let index_dir = top_dir.join("index");
     let meta_dir = top_dir.join("meta");
@@ -220,7 +223,17 @@ fn main() {
         ready_receiver.recv().unwrap();
     }
 
-    let start = Instant::now();
+    work_senders
+}
+
+#[derive(Serialize)]
+struct SearchResult {
+    url: String,
+    score: u8,
+    term_count: u8,
+}
+
+fn compute_search(work_senders: State<Arc<Mutex<Vec<Sender<Job>>>>>, terms: Vec<String>) -> (usize, Vec<SearchResult>) {
     let mut heap = BinaryHeap::new();
     for i in 0..20 {
         heap.push(QueryMatch { id: i, shard_id: 0, val: 0, tid: 0 });
@@ -235,31 +248,74 @@ fn main() {
         heap: heap.clone(),
     };
 
-    for work_sender in &mut work_senders {
-        let job = job.clone();
-        work_sender.send(Job::Query(job)).unwrap();
-    }
+    let n_threads = {
+        let work_senders = work_senders.lock().unwrap();
+        for work_sender in work_senders.iter() {
+            let job = job.clone();
+            work_sender.send(Job::Query(job)).unwrap();
+        }
+        work_senders.len()
+    };
 
     let mut count = 0;
     for _ in 0..n_threads {
-        count += done_receiver.recv().unwrap();
+        count += SHARD_SIZE * done_receiver.recv().unwrap();
     }
-
-    println!("time to search: {:?}", start.elapsed());
-    println!("found postings in {} shards", count);
 
     let mut results = heap.lock().unwrap().drain().collect::<Vec<_>>();
     results.sort();
     let mut done_receivers = Vec::with_capacity(n_threads);
-    for result in &results {
-        let (done_sender, done_receiver) = channel();
-        done_receivers.push(done_receiver);
-        let job = UrlJob { shard_id: result.shard_id, id: result.id, done_sender };
-        work_senders[result.tid].send(Job::Url(job)).unwrap();
+    {
+        let work_senders = work_senders.lock().unwrap();
+        for result in &results {
+            let (done_sender, done_receiver) = channel();
+            done_receivers.push(done_receiver);
+            let job = UrlJob { shard_id: result.shard_id, id: result.id, done_sender };
+            work_senders[result.tid].send(Job::Url(job)).unwrap();
+        }
     }
 
+    let mut search_results = Vec::new();
     for (result, done_receiver) in results.iter().zip(done_receivers) {
         let (url, term_count) = done_receiver.recv().unwrap();
-        println!("got url {}: {}, {}", url, result.val, term_count);
+        search_results.push(SearchResult { url, term_count, score: result.val });
     }
+
+    (count, search_results)
+}
+
+#[derive(Serialize)]
+struct SearchContext {
+    shard_count: usize,
+    results: Vec<SearchResult>,
+    search_time: Duration,
+}
+
+fn split_query(query: &str) -> Vec<String> {
+    let terms = query.split_whitespace()
+        .map(|term| term.to_lowercase())
+        .collect::<Vec<String>>();
+    terms
+}
+
+#[get("/search?<query>")]
+fn search(query: String, work_senders: State<Arc<Mutex<Vec<Sender<Job>>>>>) -> Template {
+    let terms = split_query(&query);
+    let start = Instant::now();
+    let (shard_count, results) = compute_search(work_senders, terms);
+    let context = SearchContext { shard_count, results, search_time: start.elapsed() };
+    Template::render("search", &context)
+}
+
+fn main() {
+    let args = env::args().skip(1).collect::<Vec<_>>();
+    let n_threads = args[0].parse::<usize>().unwrap();
+
+    let work_senders = Arc::new(Mutex::new(spawn_threads(n_threads)));
+
+    rocket::ignite()
+        .attach(Template::fairing())
+        .manage(work_senders)
+        .mount("/", routes![search])
+        .launch();
 }

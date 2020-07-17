@@ -1,0 +1,15 @@
+<html>
+  <head>
+    <title>Search results</title>
+  </head>
+
+  <body>
+    <h1>Search results</h1>
+
+    {% for result in results %}
+      <div>
+        <a href="{{ result.url }}">{{ result.url }}</a> ({{ result.score }}, {{ result.term_count }})
+      </div>
+    {% endfor %}
+  </body>
+</html>
