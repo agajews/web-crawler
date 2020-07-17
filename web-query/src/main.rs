@@ -288,7 +288,7 @@ fn compute_search(work_senders: State<Arc<Mutex<Vec<Sender<Job>>>>>, terms: Vec<
 struct SearchContext {
     count: usize,
     results: Vec<SearchResult>,
-    search_time: u128,
+    search_time: usize,
 }
 
 fn split_query(query: &str) -> Vec<String> {
@@ -303,7 +303,7 @@ fn search(query: String, work_senders: State<Arc<Mutex<Vec<Sender<Job>>>>>) -> T
     let terms = split_query(&query);
     let start = Instant::now();
     let (count, results) = compute_search(work_senders, terms);
-    let context = SearchContext { count, results, search_time: start.elapsed().as_millis() };
+    let context = SearchContext { count, results, search_time: start.elapsed().as_millis() as usize };
     Template::render("search", &context)
 }
 
