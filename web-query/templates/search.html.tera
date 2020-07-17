@@ -1,10 +1,23 @@
 <html>
   <head>
     <title>Search results</title>
+
+    <script>
+      function search(event) {
+        event.preventDefault();
+	var query = document.getElementById("search");
+	window.location.href = "/search?query=" + encodeURIComponent(query);
+      }
+    </script>
   </head>
 
   <body>
+    <form onsubmit="search(event)">
+      <input type="text" id="search" name="search">
+      <input type="submit">
+    </form>
     <h1>Search results</h1>
+    <p>Scanned through {{ result.count }} pages in {{ result.search_time }}</p>
 
     {% for result in results %}
       <div>

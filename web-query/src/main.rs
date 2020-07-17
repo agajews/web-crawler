@@ -286,7 +286,7 @@ fn compute_search(work_senders: State<Arc<Mutex<Vec<Sender<Job>>>>>, terms: Vec<
 
 #[derive(Serialize)]
 struct SearchContext {
-    shard_count: usize,
+    count: usize,
     results: Vec<SearchResult>,
     search_time: Duration,
 }
@@ -302,8 +302,8 @@ fn split_query(query: &str) -> Vec<String> {
 fn search(query: String, work_senders: State<Arc<Mutex<Vec<Sender<Job>>>>>) -> Template {
     let terms = split_query(&query);
     let start = Instant::now();
-    let (shard_count, results) = compute_search(work_senders, terms);
-    let context = SearchContext { shard_count, results, search_time: start.elapsed() };
+    let (count, results) = compute_search(work_senders, terms);
+    let context = SearchContext { count, results, search_time: start.elapsed() };
     Template::render("search", &context)
 }
 
