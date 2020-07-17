@@ -3,7 +3,7 @@
     <title>Search results</title>
 
     <script>
-      function search(event) {
+      function doSearch(event) {
         event.preventDefault();
 	console.log("searching!");
 	var query = document.getElementById("search").value;
@@ -13,7 +13,7 @@
   </head>
 
   <body>
-    <form onsubmit="search(event)">
+    <form onsubmit="doSearch(event)">
       <input type="text" id="search" name="search">
       <input type="submit">
     </form>
