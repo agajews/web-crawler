@@ -17,7 +17,7 @@
       <input type="submit">
     </form>
     <h1>Search results</h1>
-    <p>Scanned through {{ count }} pages in {{ search_time }}</p>
+    <p>Scanned through {{ count }} pages in {{ search_time }}ms</p>
 
     {% for result in results %}
       <div>

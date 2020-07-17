@@ -7,7 +7,7 @@ use web_index::IndexShard;
 use std::path::PathBuf;
 use std::env;
 use std::collections::BinaryHeap;
-use std::time::{Instant, Duration};
+use std::time::Instant;
 use packed_simd::*;
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::sync::{Arc, Mutex};
@@ -288,7 +288,7 @@ fn compute_search(work_senders: State<Arc<Mutex<Vec<Sender<Job>>>>>, terms: Vec<
 struct SearchContext {
     count: usize,
     results: Vec<SearchResult>,
-    search_time: Duration,
+    search_time: u128,
 }
 
 fn split_query(query: &str) -> Vec<String> {
@@ -303,7 +303,7 @@ fn search(query: String, work_senders: State<Arc<Mutex<Vec<Sender<Job>>>>>) -> T
     let terms = split_query(&query);
     let start = Instant::now();
     let (count, results) = compute_search(work_senders, terms);
-    let context = SearchContext { count, results, search_time: start.elapsed() };
+    let context = SearchContext { count, results, search_time: start.elapsed().as_millis() };
     Template::render("search", &context)
 }
 
