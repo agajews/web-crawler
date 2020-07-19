@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::path::PathBuf;
 use std::time::Duration;
 
-const N_THREADS: usize = 32;
+const N_THREADS: usize = 64;
 
 #[derive(Clone)]
 struct Monitor {
