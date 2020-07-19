@@ -60,6 +60,7 @@ fn bench_thread(path: PathBuf, monitor: Monitor) {
 fn main() {
     let monitor = Monitor::spawn();
     let dirs = env::args()
+        .skip(1)
         .map(|arg| arg.into())
         .collect::<Vec<PathBuf>>();
 
