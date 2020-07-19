@@ -42,8 +42,9 @@ impl Monitor {
 fn main() {
     let monitor = Monitor::spawn();
     let dir: PathBuf = env::var("BENCH_DIR").unwrap().into();
+    fs::create_dir_all(&dir).unwrap();
     let path = dir.join("0");
-    let mut file = fs::File::open(path).unwrap();
+    let mut file = fs::File::create(path).unwrap();
     let n_bytes = 10_000_000_000;
     let bytes = vec![0 as u8; n_bytes];
     file.write_all(&bytes).unwrap();
