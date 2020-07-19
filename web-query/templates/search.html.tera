@@ -5,7 +5,6 @@
     <script>
       function doSearch(event) {
         event.preventDefault();
-	console.log("searching!");
 	var query = document.getElementById("search").value;
 	window.location.href = "/search?query=" + encodeURIComponent(query);
       }
