@@ -9,6 +9,8 @@ use std::sync::Arc;
 use std::path::PathBuf;
 use std::time::Duration;
 
+const N_THREADS: usize = 32;
+
 #[derive(Clone)]
 struct Monitor {
     n_writes: Arc<AtomicUsize>,
@@ -39,11 +41,7 @@ impl Monitor {
     }
 }
 
-fn main() {
-    let monitor = Monitor::spawn();
-    let dir: PathBuf = env::var("BENCH_DIR").unwrap().into();
-    fs::create_dir_all(&dir).unwrap();
-    let path = dir.join("0");
+fn bench_thread(path: PathBuf, monitor: Monitor) {
     let mut file = fs::File::create(path).unwrap();
     let n_bytes = 10_000_000_000;
     let bytes = vec![0 as u8; n_bytes];
@@ -56,5 +54,22 @@ fn main() {
         file.write(&[1]).unwrap();
         file.sync_all().unwrap();
         monitor.inc_writes();
+    }
+}
+
+fn main() {
+    let monitor = Monitor::spawn();
+    let dir: PathBuf = env::var("BENCH_DIR").unwrap().into();
+    fs::create_dir_all(&dir).unwrap();
+
+    let mut threads = Vec::new();
+    for i in 0..N_THREADS {
+        let path = dir.join(format!("{}", i));
+        let monitor = monitor.clone();
+        threads.push(thread::spawn(move || bench_thread(path, monitor)));
+    }
+
+    for thread in threads {
+        thread.join().unwrap();
     }
 }
