@@ -43,7 +43,7 @@ impl Monitor {
 
 fn bench_thread(path: PathBuf, monitor: Monitor) {
     let mut file = fs::File::create(path).unwrap();
-    let n_bytes = 10_000_000_000;
+    let n_bytes = 1_000_000_000;
     let bytes = vec![0 as u8; n_bytes];
     file.write_all(&bytes).unwrap();
     let mut rng = rand::thread_rng();
