@@ -59,11 +59,17 @@ fn bench_thread(path: PathBuf, monitor: Monitor) {
 
 fn main() {
     let monitor = Monitor::spawn();
-    let dir: PathBuf = env::var("BENCH_DIR").unwrap().into();
-    fs::create_dir_all(&dir).unwrap();
+    let dirs = env::args()
+        .map(|arg| arg.into())
+        .collect::<Vec<PathBuf>>();
+
+    for dir in &dirs {
+        fs::create_dir_all(dir).unwrap();
+    }
 
     let mut threads = Vec::new();
     for i in 0..N_THREADS {
+        let dir = &dirs[i % dirs.len()];
         let path = dir.join(format!("{}", i));
         let monitor = monitor.clone();
         threads.push(thread::spawn(move || bench_thread(path, monitor)));
