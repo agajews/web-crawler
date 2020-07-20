@@ -21,7 +21,7 @@ impl Crawler {
         }
     }
 
-    async fn do_job(&self, job: String) {
+    async fn do_job(&self, job: Job) {
     }
 }
 
