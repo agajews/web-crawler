@@ -46,10 +46,11 @@ impl Scheduler {
                 }
             }
 
-            let job = self.pop_job();
-            if let None self.try_assign(job) {
-                self.stash_job(job);
-                sleep(self.config.scheduler_sleep);
+            if let Some(job) = self.pop_job() {
+                if let None = self.try_assign(job) {
+                    self.stash_job(job);
+                    sleep(self.config.scheduler_sleep);
+                }
             }
         }
     }
