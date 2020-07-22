@@ -2,7 +2,7 @@ pub struct Scheduler {
     empty_receiver: Receiver<usize>,
     register_receiver: Receiver<(WorkSender<Job>, Sender<usize>)>,
     work_senders: Vec<WorkSender<Job>>,
-    pqueue: DiskPQueue,
+    pqueue: DiskPQueueReceiver,
     config: Config,
     recent_domains: BTreeMap<JobLocality, Vec<usize>>,
 }
@@ -13,10 +13,9 @@ pub struct SchedulerHandle {
 }
 
 impl Scheduler {
-    pub fn spawn(config: Config) -> (JoinHandle<()>, SchedulerHandle) {
+    pub fn spawn(pqueue: DiskPQueueReceiver, config: Config) -> (JoinHandle<()>, SchedulerHandle) {
         let (empty_sender, empty_receiver) = channel();
         let (register_sender, register_receiver) = channel();
-        let pqueue = DiskPQueue::spawn(config.clone());
         let scheduler = Scheduler {
             empty_receiver,
             register_receiver,
