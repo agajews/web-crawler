@@ -1,20 +1,40 @@
 pub struct DiskPQueueReceiver {
-    work_receiver: WorkReceiver<Job>,
+    config: Config,
+    work_receiver: Receiver<Job>,
+    event_sender: Sender<PQueueEvent>,
+    n_requests: usize,
+}
+
+impl DiskPQueueReceiver {
+    pub fn pop(&mut self) -> Option<Job> {
+        let maybe_job = self.work_receiver.try_recv().ok();
+        if maybe_job.is_some() {
+            self.n_requests -= 1;
+        }
+        while self.n_requests < self.config.scheduler_queue_cap {
+            self.event_sender.send(PQueueEvent::Pop).unwrap();
+            self.n_requests += 1;
+        }
+        maybe_job
+    }
 }
 
 #[derive(Clone)]
 pub struct DiskPQueueSender {
-    inc_sender: Sender<Job>,
+    event_sender: Sender<PQueueEvent>,
+}
+
+impl DiskPQueueSender {
+    pub fn increment(&self, job: Job) {
+        self.event_sender.send(PQueueEvent::Inc(job)).unwrap();
+    }
 }
 
 pub struct DiskPQueue {
     config: Config,
-    work_sender: WorkSender<Job>,
-    inc_receiver: Receiver<Job>,
-    page_receiver: Receiver<(PageEvent, Page)>,
-    page_requesters: Vec<Sender<usize>>,
-    page_write_receiver: Receiver<usize>,
-    page_writers: Vec<Sender<(usize, Page)>>,
+    work_sender: Sender<Job>,
+    event_receivers: Receiver<PQueueEvent>,
+    thread_event_senders: Vec<Sender<DiskThreadEvent>>,
     page_table: BTreeMap<PageBounds, usize>,
     pqueue: PriorityQueueMap<usize, u32>,
     cache: BTreeCache<usize, Page>,
@@ -28,42 +48,36 @@ enum PageEvent {
 impl DiskPQueue {
     pub fn spawn(config: Config) -> (DiskPQueueSender, DiskPQueueReceiver) {
         let (work_sender, work_receiver) = work_channel();
-        let (inc_sender, inc_receiver) = channel();
-        let mut page_requesters = Vec::new();
-        let mut page_writers = Vec::new();
-        let (page_sender, page_receiver) = channel();
-        let (page_write_sender, page_write_receiver) = channel();
+        let (event_sender, event_receiver) = channel();
+        let mut thread_event_senders = Vec::new();
         for _ in 0..config.n_pqueue_threads {
-            let page_sender = page_sender.clone();
-            let (page_requester, page_request_receiver) = channel();
-            let (page_writer, page_write_request_receiver) = channel();
-            page_requesters.push(page_requester);
+            let event_sender = event_sender.clone();
             page_writers.push(page_writer);
-            DiskPQueueThread::spawn(
+            let thread_event_sender = DiskPQueueThread::spawn(
                 page_request_receiver,
-                page_sender,
                 page_write_request_receiver,
-                page_write_sender,
+                event_sender,
             );
+            thread_event_senders.push(thread_event_sender);
         }
         let pqueue = DiskPQueue {
             config,
             work_sender,
-            inc_receiver,
-            page_receiver,
-            page_requesters,
-            page_write_receiver,
-            page_writers,
+            event_receiver,
+            thread_event_senders,
             page_table: BTreeMap::new(),
             pqueue: PriorityQueueMap::new(),
             cache: BTreeCache::new(),
         };
         thread::spawn(move || pqueue.run());
         let sender = DiskPQueueSender {
-            inc_sender,
+            event_sender: event_sender.clone(),
         };
         let receiver = DiskPQueueReceiver {
             work_receiver,
+            event_sender,
+            outstanding: 0,
+            config: config.clone(),
         };
         (sender, receiver)
     }
@@ -88,28 +102,26 @@ impl DiskPQueue {
     }
 
     fn run(&mut self) {
-        // TODO: track empty loop runs
-        loop {
-            if let Some((id, page)) = self.page_receiver.try_recv() {
-                self.cache_page(id, page);
-                for action in self.read_map.remove(id).unwrap() {
-                    match action {
-                        PageEvent::Inc(job) => self.increment(job),
-                        _ => (),
+        for event in self.event_receiver {
+            match event {
+                PQueueEvent::ReadResponse(id, page) => {
+                    self.cache_page(id, page);
+                    for action in self.read_map.remove(id).unwrap() {
+                        match action {
+                            PageEvent::Inc(job) => self.increment(job),
+                            _ => (),
+                        }
                     }
-                }
-            }
-
-            if let Some(page_id) = self.page_write_receiver.try_recv() {
-                self.write_map.remove(page_id);
-            }
-
-            if let Some(job) = self.inc_receiver.try_recv() {
-                self.increment(job);
-            }
-
-            if self.work_sender.len() < self.config.work_sender_cap {
-                self.pop();
+                },
+                PQueueEvent::WriteResponse(id) => {
+                    self.write_map.remove(page_id);
+                },
+                PQueueEvent::IncRequest(job) => {
+                    self.increment(job);
+                },
+                PQueueEvent::PopRequest => {
+                    self.pop();
+                },
             }
         }
     }
