@@ -7,6 +7,7 @@ DiskPQueueThread::spawn(
 );
 
 struct DiskPQueueThread {
+    config: Config,
     event_receiver: Receiver<DiskThreadEvent>,
     pqueue_sender: Sender<PQueueEvent>,
     file: fs::File,
@@ -18,6 +19,7 @@ impl DiskPQueueThread {
     fn spawn(tid: usize, config: Config, pqueue_sender: Sender<PQueueEvent>) -> Sender<DiskThreadEvent> {
         let (event_sender, event_receiver) = channel();
         let pqueue_thread = DiskPQueueThread {
+            config,
             event_receiver,
             pqueue_sender,
             file_len: 0,
@@ -40,7 +42,7 @@ impl DiskPQueueThread {
         let bytes = vec![0 as u8; self.config.page_size_bytes];
         self.file.seek(SeekFrom::Start(offset)).unwrap();
         self.file.read_exact(&mut bytes).unwrap();
-        let page = Page::deserialize(bytes);
+        let page = Page::deserialize(&self.config, bytes);
         self.pqueue_sender.send(PQueueEvent::ReadResponse(id, page)).unwrap();
     }
 
@@ -58,7 +60,8 @@ impl DiskPQueueThread {
     }
 
     fn write_to_offset(&mut self, offset: u64, page: Page) {
-        let bytes = page.serialize();
+        let bytes = page.serialize(&self.config);
+        assert!(bytes.len() <= self.config.page_size_bytes);
         self.file.seek(SeekFrom::Start(offset)).unwrap();
         self.file.write_all(bytes);
         self.file.sync_all();
