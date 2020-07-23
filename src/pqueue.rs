@@ -35,7 +35,7 @@ pub struct DiskPQueue {
     work_sender: Sender<Job>,
     event_receivers: Receiver<PQueueEvent>,
     thread_event_senders: Vec<Sender<DiskThreadEvent>>,
-    page_table: BTreeMap<PageBounds, usize>,
+    page_table: BTreeMap<PageBoundsCmp, usize>,
     pqueue: PriorityQueueMap<usize, u32>,
     cache: BTreeCache<usize, Page>,
 }
@@ -133,11 +133,11 @@ impl DiskPQueue {
                 if let Some(new_page) = page.increment(job) {
                     // update old page
                     self.page_table.remove(initial_bounds);
-                    self.page_table.insert(page.bounds(), id);
+                    self.page_table.insert(page.bounds, id);
 
                     // insert new page
                     let new_id = self.page_table.len();
-                    self.page_table.insert(new_page.bounds(), new_id);
+                    self.page_table.insert(new_page.bounds, new_id);
                     self.cache_page(new_id, new_page);
                     self.pqueue.insert(new_id, new_page.value());
                 }
