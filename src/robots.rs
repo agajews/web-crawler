@@ -1,3 +1,11 @@
+use crate::monitor::MonitorHandle;
+use crate::client::Client;
+
+use std::sync::Mutex;
+use regex::Regex;
+use std::collections::BTreeMap;
+
+
 pub struct RobotsChecker {
     disallow_re: Regex,
     cache: Mutex<BTreeMap<String, Option<Vec<String>>>>,

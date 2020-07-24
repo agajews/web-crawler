@@ -1,3 +1,11 @@
+use reqwest;
+use reqwest::redirect::Policy;
+use std::net::IpAddr;
+use datalink;
+use rand;
+use rand::prelude::*;
+use std::time::Duration;
+
 pub struct Client {
     client: reqwest::Client,
     ip: IpAddr,

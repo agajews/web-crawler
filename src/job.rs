@@ -1,3 +1,5 @@
+use url::Url;
+
 pub struct Job {
     pub url: String,
 }

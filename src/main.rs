@@ -1,3 +1,18 @@
+use crate::config::Config;
+use crate::index::Index;
+use crate::robots::RobotsChecker;
+use crate::scheduler::{Scheduler, SchedulerHandle};
+use crate::pqueue::{DiskPQueue, DiskPQueueSender};
+use crate::client::Client;
+use crate::monitor::{Monitor, MonitorHandle};
+
+use std::sync::Arc;
+use regex::Regex;
+use core_affinity;
+use std::thread;
+use tokio::runtime;
+use tokio::time::delay_for;
+
 struct Crawler {
     config: Config,
     index: Arc<Index>,
@@ -173,6 +188,9 @@ fn core_thread(
 fn main() {
     let config = Config::load().unwrap();
     let (pqueue_sender, pqueue_receiver) = DiskPQueue::spawn(config.clone());
+    for url in &config.root_set {
+        pqueue_sender.increment(Job::new(url));
+    }
     let (scheduler_thread, scheduler_handle) = Scheduler::spawn(pqueue_receiver, config.clone());
     let monitor_handle = Monitor::spawn(config.clone());
 

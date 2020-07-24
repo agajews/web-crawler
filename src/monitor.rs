@@ -1,3 +1,6 @@
+use std::sync::Arc;
+use core::sync::atomic::{AtomicUsize, Ordering};
+
 #[derive(Clone)]
 pub struct MonitorHandle {
     successful_jobs: Arc<AtomicUsize>,

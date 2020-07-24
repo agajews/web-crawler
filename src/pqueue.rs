@@ -1,3 +1,11 @@
+use crate::pqueueevent::PQueueEvent;
+use crate::config::Config;
+use crate::monitor::MonitorHandle;
+use crate::page::Page;
+use crate::job::Job;
+
+use std::sync::mpsc::{Receiver, Sender};
+
 pub struct DiskPQueueReceiver {
     config: Config,
     work_receiver: Receiver<Job>,
@@ -172,10 +180,10 @@ impl DiskPQueue {
     }
 
     fn request_page(&mut self, id: usize) {
-        self.page_requesters[id % self.page_requesters.len()].send(id).unwrap();
+        self.thread_event_senders[id % self.page_requesters.len()].send(DiskThreadEvent::Read(id)).unwrap();
     }
 
     fn write_page(&mut self, id: usize, page: Page) {
-        self.page_writers[id % self.page_writers.len()].send((id, page)).unwrap();
+        self.thread_event_senders[id % self.page_writers.len()].send(DiskThreadEvent::Write(id, page)).unwrap();
     }
 }

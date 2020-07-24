@@ -1,3 +1,7 @@
+use std::env;
+use std::time::Duration;
+use std::path::PathBuf;
+
 #[derive(Clone)]
 pub struct Config {
     pqueue_path: PathBuf,
@@ -13,8 +17,10 @@ pub struct Config {
     scheduler_sleep: Duration,
     locality_clear_prob: f32,
     work_queue_cap: usize,
+    min_run_len: usize,
     client_refresh_interval: usize,
     crawler_empty_delay: Duration,
+    root_set: Vec<String>,
 }
 
 impl Config {
@@ -34,8 +40,15 @@ impl Config {
             scheduler_sleep: Duration::from_millis(1),
             locality_clear_prob: 0.01,
             work_queue_cap: 100,
+            min_run_len: 32,
             client_refresh_interval: 100,
             crawler_empty_delay: Duration::from_millis(1),
+            root_set: vec![
+                "https://columbia.edu",
+                "https://harvard.edu",
+                "https://mit.edu",
+                "https://cam.ac.uk",
+            ],
         }
     }
 }

@@ -1,10 +1,13 @@
+use crate::pqueueevent::PQueueEvent;
 
-DiskPQueueThread::spawn(
-    page_request_receiver,
-    page_sender,
-    page_write_request_receiver,
-    page_write_sender,
-);
+use std::fs;
+use std::io::SeekFrom;
+use std::io::prelude::*;
+
+enum DiskThreadEvent {
+    Read(usize),
+    Write(usize, Page),
+}
 
 struct DiskPQueueThread {
     config: Config,

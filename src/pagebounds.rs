@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 #[derive(Eq, PartialOrd, Ord)]
 pub enum Marker {
     PosInf,

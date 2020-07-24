@@ -1,3 +1,6 @@
+use crate::pagebounds::{PageBounds, Marker};
+use crate::job::Job;
+
 pub struct Page {
     capacity: usize,
     entries: Vec<(String, u32, bool)>,

@@ -1,3 +1,11 @@
+use crate::config::Config;
+use crate::runencoder::RunEncoder;
+
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+use std::fs;
+
+
 pub struct Index {
     config: Config,
     cache: BTreeMap<String, RunEncoder>,
@@ -26,7 +34,7 @@ impl Index {
             let encoder = match self.cache.get_mut(&key) {
                 Some(encoder) => encoder,
                 None => {
-                    self.cache.insert(term.clone(), RunEncoder::new());
+                    self.cache.insert(term.clone(), RunEncoder::new(self.config.min_run_len));
                     &mut self.cache[&term]
                 },
             };

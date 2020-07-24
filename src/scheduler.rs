@@ -1,3 +1,12 @@
+use crate::workchannel::WorkSender;
+use crate::pqueue::DiskPQueueReceiver;
+use crate::job::{Job, JobLocality};
+use crate::config::Config;
+
+use std::sync::mpsc::{Receiver, Sender};
+use std::collections::BTreeMap;
+use std::thread::JoinHandle;
+
 pub struct Scheduler {
     empty_receiver: Receiver<usize>,
     register_receiver: Receiver<(WorkSender<Job>, Sender<usize>)>,
