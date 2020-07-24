@@ -1,13 +1,34 @@
 struct Crawler {
     config: Config,
     index: Arc<Mutex<Index>>,
+    robots: Arc<Mutex<RobotsChecker>>,
     scheduler: SchedulerHandle,
     pqueue: DiskPQueueSender,
     monitor: MonitorHandle,
+    client: Client,
 }
 
 impl Crawler {
-    async fn crawl(&self) {
+    pub fn new(
+        config: Config,
+        index: Arc<Mutex<Index>>,
+        robots: Arc<Mutex<RobotsChecker>>,
+        scheduler: SchedulerHandle,
+        pqueue: DiskPQueueSender,
+        monitor: MonitorHandle,
+    ) -> Crawler {
+        Crawler {
+            config,
+            index,
+            robots,
+            scheduler,
+            pqueue,
+            monitor,
+            client: Client::new(),
+        }
+    }
+
+    pub async fn crawl(&self) {
         let (work_sender, work_receiver) = work_channel();
         let tid = self.scheduler.register(work_sender);
 
@@ -34,6 +55,7 @@ fn core_thread(
     monitor: MonitorHandle,
 ) {
     let index = Arc::new(Mutex::new(Index::new(core_id, config.clone())));
+    let robots = Arc::new(Mutex::new(RobotsChecker::new()));
 
     let mut rt = runtime::Builder::new()
         .basic_scheduler()
@@ -46,6 +68,7 @@ fn core_thread(
         let crawler = Crawler::new(
             config.clone(),
             index.clone(),
+            robots.clone(),
             scheduler.clone(),
             pqueue.clone(),
             monitor.clone(),
@@ -55,6 +78,7 @@ fn core_thread(
     let crawler = Crawler::new(
         config,
         index,
+        robots,
         scheduler,
         pqueue,
         monitor,
