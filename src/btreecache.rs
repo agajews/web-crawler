@@ -1,14 +1,15 @@
 use std::collections::BTreeMap;
 use priority_queue::PriorityQueue;
 use std::cmp::Reverse;
+use std::hash::Hash;
 
-pub struct<K, V> BTreeCache<K, V> {
+pub struct BTreeCache<K: Ord + Hash, V> {
     cache: BTreeMap<K, V>,
     pqueue: PriorityQueue<K, Reverse<u64>>,
     ticker: u64,
 }
 
-impl<K: Ord, V> BTreeCache<K, V> {
+impl<K: Ord + Hash + Clone, V> BTreeCache<K, V> {
     pub fn new() -> BTreeCache<K, V> {
         BTreeCache {
             cache: BTreeMap::new(),
@@ -18,20 +19,24 @@ impl<K: Ord, V> BTreeCache<K, V> {
     }
 
     pub fn insert(&mut self, key: K, value: V) {
-        self.cache.insert(key, value);
-        self.pqueue.insert(key, Reverse(self.ticker));
+        self.cache.insert(key.clone(), value);
+        self.pqueue.push(key, Reverse(self.ticker));
         self.ticker += 1;
     }
 
     pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
-        self.cache.get_mut(key).map(|_| {
+        if self.cache.contains_key(key) {
             self.pqueue.change_priority(key, Reverse(self.ticker));
             self.ticker += 1;
-        })
+        }
+        self.cache.get_mut(key)
     }
 
     pub fn remove_oldest(&mut self) -> Option<(K, V)> {
-        self.pqueue.pop().and_then(|(key, _)| self.cache.remove(key))
+        self.pqueue.pop().map(|(key, _)| {
+            let value = self.cache.remove(&key).unwrap();
+            (key, value)
+        })
     }
 
     pub fn len(&self) -> usize {

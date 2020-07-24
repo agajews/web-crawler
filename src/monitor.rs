@@ -1,5 +1,7 @@
 use std::sync::Arc;
 use core::sync::atomic::{AtomicUsize, Ordering};
+use std::thread;
+use std::time::Duration;
 
 #[derive(Clone)]
 pub struct MonitorHandle {
@@ -56,11 +58,11 @@ impl Monitor {
             seen_urls: Arc::new(AtomicUsize::new(0)),
             response_time: Arc::new(AtomicUsize::new(0)),
             robots_hits: Arc::new(AtomicUsize::new(0)),
-        }
+        };
         let monitor = Monitor {
             handle: handle.clone(),
         };
-        thread::spawn(monitor.run());
+        thread::spawn(move || monitor.run());
         handle
     }
 
@@ -70,7 +72,7 @@ impl Monitor {
         let mut old_skipped = self.handle.skipped_jobs.load(Ordering::Relaxed);
         let mut old_completed = self.handle.completed_jobs.load(Ordering::Relaxed);
         let mut old_failed = self.handle.failed_jobs.load(Ordering::Relaxed);
-        let mut old_robots_hits = self.handle.robots_hit.load(Ordering::Relaxed);
+        let mut old_robots_hits = self.handle.robots_hits.load(Ordering::Relaxed);
         println!("monitoring crawl rate");
         loop {
             thread::sleep(Duration::from_millis(1000));
@@ -79,7 +81,7 @@ impl Monitor {
             let new_skipped = self.handle.skipped_jobs.load(Ordering::Relaxed);
             let new_completed = self.handle.completed_jobs.load(Ordering::Relaxed);
             let new_failed = self.handle.failed_jobs.load(Ordering::Relaxed);
-            let new_robots_hits = self.handle.robots_hit.load(Ordering::Relaxed);
+            let new_robots_hits = self.handle.robots_hits.load(Ordering::Relaxed);
             println!(
                 "{} urls/s, {}% errs, {}% skipped, {}ms responses, {}% robot hits, crawled {}, seen {}",
                  new_successful - old_successful,

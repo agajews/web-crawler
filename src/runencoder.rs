@@ -1,3 +1,5 @@
+use std::convert::TryInto;
+
 pub struct RunEncoder {
     min_run_len: usize,
     len: usize,

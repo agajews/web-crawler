@@ -12,6 +12,7 @@ use core_affinity;
 use std::thread;
 use tokio::runtime;
 use tokio::time::delay_for;
+use http::Uri;
 
 struct Crawler {
     config: Config,
@@ -43,7 +44,7 @@ impl Crawler {
             scheduler,
             pqueue,
             monitor,
-            client: Client::new(config.client_refresh_interval),
+            client: Client::new(config.user_agent, config.client_refresh_interval),
             link_re: Regex::new("href=['\"][^'\"]+['\"]").unwrap(),
             body_re: Regex::new(r"(?s)<body[^<>]*>.*(</body>|<script>)?").unwrap(),
             tag_text_re: Regex::new(r">([^<>]+)").unwrap(),
@@ -51,7 +52,7 @@ impl Crawler {
         }
     }
 
-    pub async fn crawl(&self) {
+    pub async fn crawl(&mut self) {
         let (work_sender, work_receiver) = work_channel();
         let tid = self.scheduler.register(work_sender);
 
@@ -78,9 +79,9 @@ impl Crawler {
         }
     }
 
-    async fn do_job(&self, job: Job) -> Result<JobStatus, Box<dyn Error>> {
+    async fn do_job(&mut self, job: Job) -> Result<JobStatus, Box<dyn Error>> {
         let url = Url::parse(job.url).unwrap();
-        if !self.robots.allowed(&self.client, url).await {
+        if !self.robots.allowed(&mut self.client, url).await {
             return Ok(JobStatus::Skipped);
         }
 
@@ -119,6 +120,7 @@ impl Crawler {
             .filter(|url| !clearly_not_html(url))
             .filter(|url| url.len <= self.config.max_url_len)
             .filter(|url| url.host_str().is_some())
+            .filter(|url| url.parse::<Uri>.is_ok())
             .collect::<Vec<_>>();
 
         for link in links {
@@ -154,7 +156,7 @@ fn core_thread(
     monitor: MonitorHandle,
 ) {
     let index = Arc::new(Index::new(core_id, config.clone()));
-    let robots = Arc::new(RobotsChecker::new(monitor.clone()));
+    let robots = Arc::new(RobotsChecker::new(config.clone(), monitor.clone()));
 
     let mut rt = runtime::Builder::new()
         .basic_scheduler()

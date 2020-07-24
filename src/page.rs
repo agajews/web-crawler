@@ -1,29 +1,47 @@
-use crate::pagebounds::{PageBounds, Marker};
+use crate::pagebounds::{PageBounds,  PageBoundsCmp, Marker};
 use crate::job::Job;
+use crate::config::Config;
+use crate::monitor::MonitorHandle;
 
+use std::convert::TryInto;
+
+#[derive(Clone)]
 pub struct Page {
     capacity: usize,
     entries: Vec<(String, u32, bool)>,
-    pub bounds: PageBounds,
+    bounds: PageBounds,
+    pub value: u32,
 }
 
 impl Page {
-    pub fn init(config: &Config) {
+    pub fn init(config: &Config) -> Page {
         Page {
             capacity: config.page_capacity,
             entries: Vec::new(),
             bounds: PageBounds::new(Marker::NegInf, Marker::PosInf),
+            value: 0,
         }
     }
 
+    pub fn bounds_cmp(&self) -> PageBoundsCmp {
+        PageBoundsCmp::Bounds(self.bounds.clone())
+    }
+
     pub fn increment(&mut self, job: Job, monitor: &MonitorHandle) -> Option<Page> {
-        assert!(job.url >= Marker::finite(self.bounds.left) && job.url < Marker::finite(self.bounds.right));
-        match self.entries.binary_search_by_key(job.url, |(url, _, _)| url) {
-            Ok(i) => self.entries[i].1 += 1,
+        assert!(Marker::Finite(job.url.clone()) >= self.bounds.left && Marker::Finite(job.url.clone()) < self.bounds.right);
+        let new_value = match self.entries.binary_search_by_key(&job.url, |(url, _, _)| url.clone()) {
+            Ok(i) => {
+                self.entries[i].1 += 1;
+                self.entries[i].1
+            },
             Err(i) => {
                 monitor.inc_seen_urls();
                 self.entries.insert(i, (job.url, 1, false));
+                1
             },
+        };
+        if new_value > self.value {
+            self.value = new_value;
         }
         if self.entries.len() > self.capacity {
             return Some(self.split());
@@ -33,26 +51,41 @@ impl Page {
 
     fn split(&mut self) -> Page {
         let new_entries = self.entries.split_off(self.entries.len() / 2);
-        let new_bounds = PageBounds::new(Marker::Finite(new_entries[0].0), self.bounds.right);
-        self.bounds.right = Marker::Finite(new_entries[0].0);
+        let new_bounds = PageBounds::new(Marker::Finite(new_entries[0].0.clone()), self.bounds.right.clone());
+        self.bounds.right = Marker::Finite(new_entries[0].0.clone());
+        self.value = Self::compute_value(&self.entries);
+        let new_value = Self::compute_value(&new_entries);
         Page {
             capacity: self.capacity,
             entries: new_entries,
             bounds: new_bounds,
+            value: new_value,
         }
     }
 
-    fn pop(&mut self) -> Option<Job> {
-        entries.iter_mut()
+    pub fn pop(&mut self) -> Option<Job> {
+        self.entries.iter_mut()
             .filter(|(_, _, popped)| !popped)
-            .max_by(|(_, count, _)| count)
+            .max_by_key(|(_, count, _)| *count)
             .map(|(url, _, popped)| {
                 *popped = true;
+                url.clone()
+            })
+            .map(|url| {
+                self.value = Self::compute_value(&self.entries);
                 Job::new(url)
             })
     }
 
-    fn serialize(self, config: &Config) -> Vec<u8> {
+    fn compute_value(entries: &[(String, u32, bool)]) -> u32 {
+        entries.iter()
+            .filter(|(_, _, popped)| *popped)
+            .map(|(_, count, _)| *count)
+            .max()
+            .unwrap_or(0)
+    }
+
+    pub fn serialize(self, config: &Config) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(4 + (2 + config.max_url_len) * 2 + (1 + 4 + 1 + config.max_url_len) * self.entries.len());
         bytes.extend_from_slice(&(self.entries.len() as u32).to_be_bytes());
         let bounds_bytes = self.bounds.serialize();
@@ -64,12 +97,13 @@ impl Page {
             bytes.extend_from_slice(&(popped as u8).to_be_bytes());
             bytes.extend_from_slice(url.as_bytes());
         }
+        bytes
     }
 
-    fn deserialize(config: &Config, bytes: Vec<u8>) -> Page {
-        let n_entries = u32::from_be_bytes(bytes[0..4].try_into().unwrap());
-        let bounds_len = u32::from_be_bytes(bytes[8..12].try_into().unwrap());
-        let bounds = PageBounds::deserialize(bytes[12..(12 + bounds_len)]);
+    pub fn deserialize(config: &Config, bytes: Vec<u8>) -> Page {
+        let n_entries = u32::from_be_bytes(bytes[0..4].try_into().unwrap()) as usize;
+        let bounds_len = u32::from_be_bytes(bytes[8..12].try_into().unwrap()) as usize;
+        let bounds = PageBounds::deserialize(&bytes[12..(12 + bounds_len)]);
         let mut i = 12 + bounds_len;
         let mut entries = Vec::with_capacity(n_entries);
         for _ in 0..n_entries {
@@ -79,12 +113,15 @@ impl Page {
             i += 4;
             let popped = bytes[i] > 0;
             i += 1;
-            let url = String::from_utf8(bytes[i..(i + url_len)]).unwrap();
+            let url = String::from_utf8(bytes[i..(i + url_len)].to_vec()).unwrap();
             entries.push((url, count, popped));
         }
+        let value = Self::compute_value(&entries);
         Page {
+            value,
             entries,
             bounds,
             capacity: config.page_capacity,
+        }
     }
 }

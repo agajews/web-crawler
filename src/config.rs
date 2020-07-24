@@ -4,29 +4,30 @@ use std::path::PathBuf;
 
 #[derive(Clone)]
 pub struct Config {
-    pqueue_path: PathBuf,
-    index_path: PathBuf,
-    index_cap: usize,
-    max_document_len: usize,
-    page_capacity: usize,
-    max_url_len: usize,
-    page_size_bytes: usize,
-    scheduler_queue_cap: usize,
-    n_pqueue_threads: usize,
-    pqueue_cache_cap: usize,
-    scheduler_sleep: Duration,
-    locality_clear_prob: f32,
-    work_queue_cap: usize,
-    min_run_len: usize,
-    client_refresh_interval: usize,
-    crawler_empty_delay: Duration,
-    root_set: Vec<String>,
+    pub pqueue_path: PathBuf,
+    pub index_path: PathBuf,
+    pub index_cap: usize,
+    pub max_document_len: usize,
+    pub page_capacity: usize,
+    pub max_url_len: usize,
+    pub page_size_bytes: usize,
+    pub scheduler_queue_cap: usize,
+    pub n_pqueue_threads: usize,
+    pub pqueue_cache_cap: usize,
+    pub scheduler_sleep: Duration,
+    pub locality_clear_prob: f32,
+    pub work_queue_cap: usize,
+    pub min_run_len: usize,
+    pub client_refresh_interval: usize,
+    pub crawler_empty_delay: Duration,
+    pub root_set: Vec<&'static str>,
+    pub user_agent: String,
 }
 
 impl Config {
     pub fn load() -> Option<Config> {
-        let top_dir: PathBuf = env::var("CRAWLER_DIR")?.into();
-        Config {
+        let top_dir: PathBuf = env::var("CRAWLER_DIR").ok()?.into();
+        let config = Config {
             pqueue_path: top_dir.join("pqueue"),
             index_path: top_dir.join("index"),
             index_cap: 100_000,
@@ -49,6 +50,9 @@ impl Config {
                 "https://mit.edu",
                 "https://cam.ac.uk",
             ],
-        }
+            user_agent: String::from("Rustbot/0.3"),
+        };
+
+        Some(config)
     }
 }

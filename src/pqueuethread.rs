@@ -1,15 +1,20 @@
 use crate::pqueueevent::PQueueEvent;
+use crate::page::Page;
+use crate::config::Config;
 
 use std::fs;
 use std::io::SeekFrom;
 use std::io::prelude::*;
+use std::thread;
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::collections::BTreeMap;
 
-enum DiskThreadEvent {
+pub enum DiskThreadEvent {
     Read(usize),
     Write(usize, Page),
 }
 
-struct DiskPQueueThread {
+pub struct DiskPQueueThread {
     config: Config,
     event_receiver: Receiver<DiskThreadEvent>,
     pqueue_sender: Sender<PQueueEvent>,
@@ -19,7 +24,7 @@ struct DiskPQueueThread {
 }
 
 impl DiskPQueueThread {
-    fn spawn(tid: usize, config: Config, pqueue_sender: Sender<PQueueEvent>) -> Sender<DiskThreadEvent> {
+    pub fn spawn(tid: usize, config: Config, pqueue_sender: Sender<PQueueEvent>) -> Sender<DiskThreadEvent> {
         let (event_sender, event_receiver) = channel();
         let path = config.pqueue_path.join(format!("shard{}", tid));
         let pqueue_thread = DiskPQueueThread {
@@ -27,7 +32,8 @@ impl DiskPQueueThread {
             event_receiver,
             pqueue_sender,
             file_len: 0,
-            file: fs::File::create(path),
+            file: fs::File::create(path).unwrap(),
+            offsets: BTreeMap::new(),
         };
         thread::spawn(move || pqueue_thread.run());
         event_sender
@@ -43,21 +49,21 @@ impl DiskPQueueThread {
     }
 
     fn read_page(&mut self, id: usize) {
-        let offset = &self.offsets[id];
+        let offset = &self.offsets[&id];
         let bytes = vec![0 as u8; self.config.page_size_bytes];
-        self.file.seek(SeekFrom::Start(offset)).unwrap();
+        self.file.seek(SeekFrom::Start(*offset)).unwrap();
         self.file.read_exact(&mut bytes).unwrap();
         let page = Page::deserialize(&self.config, bytes);
         self.pqueue_sender.send(PQueueEvent::ReadResponse(id, page)).unwrap();
     }
 
     fn write_page(&mut self, id: usize, page: Page) {
-        match self.offsets.get(id) {
-            Some(offset) => self.write_to_offset(offset, page),
+        match self.offsets.get(&id) {
+            Some(offset) => self.write_to_offset(*offset, page),
             None => {
                 let offset = self.file_len;
                 self.write_to_offset(offset, page);
-                self.file_len += self.config.page_size_bytes;
+                self.file_len += self.config.page_size_bytes as u64;
                 self.offsets.insert(id, offset);
             },
         }
@@ -68,7 +74,7 @@ impl DiskPQueueThread {
         let bytes = page.serialize(&self.config);
         assert!(bytes.len() <= self.config.page_size_bytes);
         self.file.seek(SeekFrom::Start(offset)).unwrap();
-        self.file.write_all(bytes);
+        self.file.write_all(&bytes);
         self.file.sync_all();
     }
 }

@@ -935,6 +935,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "packed_simd"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a85ea9fc0d4ac0deb6fe7911d38786b32fc11119afd9e9d38b84ff691ce64220"
+dependencies = [
+ "cfg-if",
+]
+
+[[package]]
 name = "percent-encoding"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1116,6 +1125,16 @@ name = "precomputed-hash"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "925383efa346730478fb4838dbe9137d2a47675ad789c546d150a6e1dd4ab31c"
+
+[[package]]
+name = "priority-queue"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5ce18e1ee7a46cbd356679b420c77ee6c40f0a91ed012c925ca203041c0ef68d"
+dependencies = [
+ "autocfg 1.0.0",
+ "indexmap",
+]
 
 [[package]]
 name = "proc-macro-hack"
@@ -2026,6 +2045,7 @@ dependencies = [
  "http",
  "lazy_static",
  "pnet",
+ "priority-queue",
  "rand 0.7.3",
  "regex",
  "reqwest",
@@ -2042,6 +2062,7 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "fasthash",
+ "packed_simd",
  "rand 0.7.3",
  "serde",
  "tokio",

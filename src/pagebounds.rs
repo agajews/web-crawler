@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-#[derive(Eq, PartialOrd, Ord)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub enum Marker {
     PosInf,
     Finite(String),
@@ -8,33 +8,34 @@ pub enum Marker {
 }
 
 impl Marker {
-    fn serialize(&self, encoded: &mut [u8]) {
+    pub fn serialize(&self, encoded: &mut Vec<u8>) {
         match self {
-            PosInf => encoded.push(0),
-            Finite(url) => {
+            Marker::PosInf => encoded.push(0),
+            Marker::Finite(url) => {
                 encoded.push(1);
-                encoded.push(url.len());
+                encoded.push(url.len() as u8);
                 encoded.extend_from_slice(url.as_bytes());
             },
-            NegInf => encoded.push(2),
+            Marker::NegInf => encoded.push(2),
         }
     }
 
-    fn deserialize(&self, i: &mut usize, encoded: &[u8]) -> Marker {
-        match encoded[i] {
-            0 => PosInf,
+    pub fn deserialize(i: &mut usize, encoded: &[u8]) -> Marker {
+        match encoded[*i] {
+            0 => Marker::PosInf,
             1 => {
-                i += 1;
-                let url_len = encoded[i];
-                i += 1;
-                Finite(String::from_utf8(encoded[i..(i + url_len)]).unwrap())
+                *i += 1;
+                let url_len = encoded[*i] as usize;
+                *i += 1;
+                Marker::Finite(String::from_utf8(encoded[*i..(*i + url_len)].to_vec()).unwrap())
             },
-            2 => NegInf,
+            2 => Marker::NegInf,
+            _ => panic!("failed to deserialize marker"),
         }
     }
 }
 
-#[derive(Eq)]
+#[derive(Eq, Clone)]
 pub struct PageBounds {
     pub left: Marker,
     pub right: Marker,
@@ -49,6 +50,7 @@ impl PageBounds {
     }
 
     fn cmp_value(&self, other: String) -> Ordering {
+        let other = Marker::Finite(other);
         if self.left <= other && self.right > other {
             return Ordering::Equal;
         }
@@ -58,13 +60,14 @@ impl PageBounds {
         return Ordering::Greater;
     }
 
-    fn serialize(&self) -> Vec<u8> {
+    pub fn serialize(&self) -> Vec<u8> {
         let mut encoded = Vec::new();
         self.left.serialize(&mut encoded);
         self.right.serialize(&mut encoded);
+        encoded
     }
 
-    fn deserialize(encoded: &[u8]) -> PageBounds {
+    pub fn deserialize(encoded: &[u8]) -> PageBounds {
         let mut i = 0;
         let left = Marker::deserialize(&mut i, encoded);
         let right = Marker::deserialize(&mut i, encoded);
@@ -86,7 +89,7 @@ impl Ord for PageBounds {
         if self.left == other.left && self.right == other.right {
             return Ordering::Equal;
         }
-        panic!{"cannot compare partially-overlapping pages");
+        panic!("cannot compare partially-overlapping pages");
     }
 }
 
@@ -111,10 +114,10 @@ pub enum PageBoundsCmp {
 impl Ord for PageBoundsCmp {
     fn cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
-            (Bounds(a), Bounds(b)) => a.cmp(b),
-            (Bounds(a), Value(b)) => a.cmp_value(b),
-            (Value(a), Bounds(b)) => b.cmp_value(a).reverse(),
-            (Value(a), Value(b)) => a.cmp(b),
+            (PageBoundsCmp::Bounds(a), PageBoundsCmp::Bounds(b)) => a.cmp(b),
+            (PageBoundsCmp::Bounds(a), PageBoundsCmp::Value(b)) => a.cmp_value(String::from(b)),
+            (PageBoundsCmp::Value(a), PageBoundsCmp::Bounds(b)) => b.cmp_value(String::from(a)).reverse(),
+            (PageBoundsCmp::Value(a), PageBoundsCmp::Value(b)) => a.cmp(b),
         }
     }
 }

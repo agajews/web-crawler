@@ -1,29 +1,33 @@
 use crate::monitor::MonitorHandle;
 use crate::client::Client;
+use crate::config::Config;
 
 use std::sync::Mutex;
 use regex::Regex;
 use std::collections::BTreeMap;
+use url::Url;
 
 
 pub struct RobotsChecker {
+    config: Config,
     disallow_re: Regex,
     cache: Mutex<BTreeMap<String, Option<Vec<String>>>>,
     monitor: MonitorHandle,
 }
 
 impl RobotsChecker {
-    pub fn new(monitor: MonitorHandle) -> RobotsChecker {
+    pub fn new(config: Config, monitor: MonitorHandle) -> RobotsChecker {
         RobotsChecker {
+            config,
             monitor,
             cache: Mutex::new(BTreeMap::new()),
             disallow_re: Regex::new(r"^Disallow: ([^\s]+)").unwrap(),
         }
     }
 
-    pub async fn allowed(&self, url: &Url, client: &Client) -> bool {
-        let host = match url.host_str().unwrap();
-        let cache = self.cache.lock().unwrap();
+    pub async fn allowed(&self, url: &Url, client: &mut Client) -> bool {
+        let host = url.host_str().unwrap();
+        let mut cache = self.cache.lock().unwrap();
         let prefixes = match cache.get(host) {
             Some(prefixes) => {
                 self.monitor.inc_robots_hits();
@@ -35,7 +39,7 @@ impl RobotsChecker {
                 &cache[host]
             },
         };
-        match_url(url, prefixes)
+        Self::match_url(url, prefixes)
     }
 
     fn match_url(url: &Url, prefixes: &Option<Vec<String>>) -> bool {
@@ -52,10 +56,10 @@ impl RobotsChecker {
         return true;
     }
 
-    async fn fetch_robots(url: &Url, client: &Client) -> Option<Vec<String>> {
-        let res = client.get(url.join("/robots.txt").ok()?).await.ok()?;
-        let robots = Client::read_capped_bytes(res, self.config.max_document_len);
-        let robots = String::from_utf8_lossy(robots);
+    async fn fetch_robots(&self, url: &Url, client: &mut Client) -> Option<Vec<String>> {
+        let res = client.get(url.join("/robots.txt").ok()?.to_string()).await.ok()?;
+        let robots = Client::read_capped_bytes(res, self.config.max_document_len).await;
+        let robots = String::from_utf8_lossy(&robots);
         let mut prefixes = Vec::new();
         let mut should_match = false;
         for line in robots.lines() {

@@ -1,9 +1,13 @@
 use crate::config::Config;
 use crate::runencoder::RunEncoder;
+use crate::job::Job;
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::thread;
 use std::fs;
+use std::io::prelude::*;
+use fasthash::metro::hash64;
 
 
 pub struct Index {
@@ -18,24 +22,25 @@ pub struct Index {
 
 impl Index {
     pub fn new(core_id: usize, config: Config) -> Index {
+        let dir = config.index_path.join(format!("core{}", core_id));
         Index {
             config,
+            dir,
             cache: BTreeMap::new(),
             urls: Vec::new(),
             term_counts: Vec::new(),
             url_id: 0,
             db_count: 0,
-            dir: config.index_path.join(format!("core{}", core_id)),
         }
     }
 
-    pub fn insert(&mut self, job: Job, n_terms: u32, terms: BTreeMap<String, u8>) {
+    pub fn insert(&mut self, job: Job, n_terms: u8, terms: BTreeMap<String, u8>) {
         for (term, count) in terms {
-            let encoder = match self.cache.get_mut(&key) {
+            let encoder = match self.cache.get_mut(&term) {
                 Some(encoder) => encoder,
                 None => {
                     self.cache.insert(term.clone(), RunEncoder::new(self.config.min_run_len));
-                    &mut self.cache[&term]
+                    self.cache.get_mut(&term).unwrap()
                 },
             };
             encoder.add(self.url_id, count);
@@ -64,7 +69,7 @@ impl Index {
         std::mem::swap(&mut self.urls, &mut urls);
         let path = self.db_path(self.db_count);
         self.db_count += 1;
-        thread::spawn(move { Self::dump_cache(cache, term_counts, urls, path) });
+        thread::spawn(move || Self::dump_cache(cache, term_counts, urls, path) );
     }
 
     fn dump_cache(cache: BTreeMap<String, RunEncoder>, term_counts: Vec<u8>, urls: Vec<String>, path: PathBuf) {
@@ -76,8 +81,8 @@ impl Index {
         let (index_headers, index) = Self::serialize_cache(cache);
         Self::sync_write(path.join("index-headers"), &index_headers);
         Self::sync_write(path.join("index"), &index);
-        Self::sync_write(path.join("term-counts"), term_counts);
-        Self::sync_write(path.join("urls"), Self::serialize_urls(urls));
+        Self::sync_write(path.join("term-counts"), &term_counts);
+        Self::sync_write(path.join("urls"), &Self::serialize_urls(urls));
         println!("finished writing to {:?}", path);
     }
 
