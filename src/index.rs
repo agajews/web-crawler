@@ -17,7 +17,7 @@ impl Index {
             term_counts: Vec::new(),
             url_id: 0,
             db_count: 0,
-            dir: confnig.index_path.join(format!("core{}", core_id)),
+            dir: config.index_path.join(format!("core{}", core_id)),
         }
     }
 

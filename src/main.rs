@@ -57,7 +57,7 @@ impl Crawler {
                 },
                 None => {
                     self.scheduler.mark_empty(tid);
-                    delay_for(config.empty_delay).await;
+                    delay_for(config.crawler_empty_delay).await;
                 },
             }
         }
