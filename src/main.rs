@@ -53,7 +53,7 @@ impl Crawler {
 
     async fn do_job(&self, job: Job) -> Result<JobStatus, Box<dyn Error>> {
         let url = Url::parse(job.url).unwrap();
-        if !self.robots.allowed(&self.client, url) {
+        if !self.robots.allowed(&self.client, url).await {
             return Ok(JobStatus::Skipped);
         }
 
@@ -89,6 +89,7 @@ impl Crawler {
             })
             .filter(|url| !clearly_not_html(url))
             .filter(|url| url.len <= self.config.max_url_len)
+            .filter(|url| url.host_str().is_some())
             .collect::<Vec<_>>();
 
         for link in links {
@@ -103,7 +104,7 @@ impl Crawler {
         for tag_text in self.tag_text_re.captures_iter(body) {
             for term in self.term_re.find_iter(&tag_text[1]) {
                 let term = term.as_str().to_lowercase();
-                *terms.entry(&term).or_default(0) += 1;
+                *terms.entry(term).or_default(0) += 1;
                 n_terms += 1;
             }
         }
