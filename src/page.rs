@@ -5,6 +5,14 @@ pub struct Page {
 }
 
 impl Page {
+    pub fn init(config: &Config) {
+        Page {
+            capacity: config.page_capacity,
+            entries: Vec::new(),
+            bounds: PageBounds::new(Marker::NegInf, Marker::PosInf),
+        }
+    }
+
     pub fn increment(&mut self, job: Job) -> Option<Page> {
         assert!(job.url >= Marker::finite(self.bounds.left) && job.url < Marker::finite(self.bounds.right));
         match self.entries.binary_search_by_key(job.url, |(url, _, _)| url) {

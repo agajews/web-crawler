@@ -39,6 +39,13 @@ pub struct PageBounds {
 }
 
 impl PageBounds {
+    pub fn new(left: Marker, right: Marker) -> PageBounds {
+        PageBounds {
+            left,
+            right,
+        }
+    }
+
     fn cmp_value(&self, other: String) -> Ordering {
         if self.left <= other && self.right > other {
             return Ordering::Equal;

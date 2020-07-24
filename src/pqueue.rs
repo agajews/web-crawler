@@ -60,14 +60,16 @@ impl DiskPQueue {
             );
             thread_event_senders.push(thread_event_sender);
         }
+        let mut cache = BTreeCache::new();
+        cache.push(0, Page::init(&config));
         let pqueue = DiskPQueue {
             config,
             work_sender,
             event_receiver,
             thread_event_senders,
+            cache,
             page_table: BTreeMap::new(),
             pqueue: PriorityQueueMap::new(),
-            cache: BTreeCache::new(),
         };
         thread::spawn(move || pqueue.run());
         let sender = DiskPQueueSender {
