@@ -5,6 +5,33 @@ pub enum Marker {
     NegInf,
 }
 
+impl Marker {
+    fn serialize(&self, encoded: &mut [u8]) {
+        match self {
+            PosInf => encoded.push(0),
+            Finite(url) => {
+                encoded.push(1);
+                encoded.push(url.len());
+                encoded.extend_from_slice(url.as_bytes());
+            },
+            NegInf => encoded.push(2),
+        }
+    }
+
+    fn deserialize(&self, i: &mut usize, encoded: &[u8]) -> Marker {
+        match encoded[i] {
+            0 => PosInf,
+            1 => {
+                i += 1;
+                let url_len = encoded[i];
+                i += 1;
+                Finite(String::from_utf8(encoded[i..(i + url_len)]).unwrap())
+            },
+            2 => NegInf,
+        }
+    }
+}
+
 #[derive(Eq)]
 pub struct PageBounds {
     pub left: Marker,
@@ -20,6 +47,22 @@ impl PageBounds {
             return Ordering::Less;
         }
         return Ordering::Greater;
+    }
+
+    fn serialize(&self) -> Vec<u8> {
+        let mut encoded = Vec::new();
+        self.left.serialize(&mut encoded);
+        self.right.serialize(&mut encoded);
+    }
+
+    fn deserialize(encoded: &[u8]) -> PageBounds {
+        let mut i = 0;
+        let left = Marker::deserialize(&mut i, encoded);
+        let right = Marker::deserialize(&mut i, encoded);
+        PageBounds {
+            left,
+            right,
+        }
     }
 }
 

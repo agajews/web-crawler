@@ -39,7 +39,7 @@ impl Page {
     }
 
     fn serialize(self, config: &Config) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(4 + (1 + 4 + 1 + config.max_url_len) * self.entries.len());
+        let mut bytes = Vec::with_capacity(4 + (1 + config.max_url_len) * 2 + (1 + 4 + 1 + config.max_url_len) * self.entries.len());
         bytes.extend_from_slice(&(self.entries.len() as u32).to_be_bytes());
         let bounds_bytes = self.bounds.serialize();
         bytes.extend_from_slice(&(bounds_bytes.len() as u32).to_be_bytes());
