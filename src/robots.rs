@@ -1,14 +1,26 @@
 pub struct RobotsChecker {
     disallow_re: Regex,
     cache: Mutex<BTreeMap<String, Option<Vec<String>>>>,
+    monitor: MonitorHandle,
 }
 
 impl RobotsChecker {
+    pub fn new(monitor: MonitorHandle) -> RobotsChecker {
+        RobotsChecker {
+            monitor,
+            cache: Mutex::new(BTreeMap::new()),
+            disallow_re: Regex::new(r"^Disallow: ([^\s]+)").unwrap(),
+        }
+    }
+
     pub async fn allowed(&self, url: &Url, client: &Client) -> bool {
         let host = match url.host_str().unwrap();
         let cache = self.cache.lock().unwrap();
         let prefixes = match cache.get(host) {
-            Some(prefixes) => prefixes,
+            Some(prefixes) => {
+                self.monitor.inc_robots_hits();
+                prefixes
+            },
             None => {
                 let prefixes = self.fetch_robots(url, client).await;
                 cache.insert(String::from(host), prefixes);

@@ -42,7 +42,19 @@ impl Crawler {
 
         loop {
             match work_receiver.try_recv() {
-                Some(job) => self.do_job(job).await,
+                Some(job) => {
+                    match self.do_job(job).await {
+                        Ok(JobStatus::Success) => self.monitor.inc_successful_jobs(),
+                        Ok(JobStatus::Skipped) => self.monitor.inc_skipped_jobs(),
+                        Err(err) => {
+                            self.monitor.inc_failed_jobs();
+                            if tid % 100 == 0 {
+                                println!("error crawling {}: {:?}", job.url, err);
+                            }
+                        }
+                    }
+                    self.monitor.inc_completed_jobs();
+                },
                 None => {
                     self.scheduler.mark_empty(tid);
                     delay_for(config.empty_delay).await;
@@ -57,6 +69,7 @@ impl Crawler {
             return Ok(JobStatus::Skipped);
         }
 
+        let start = Instant::now();
         let res = self.client.get(url).await?;
         let headers = res.headers();
         if self.headers_not_html(&headers) {
@@ -69,6 +82,7 @@ impl Crawler {
         }
 
         let document = Client::read_capped_bytes(res, self.config.max_document_len);
+        self.monitor.inc_response_time(start.elapsed().as_millis());
         let document = String::from_utf8_lossy(document);
 
         self.add_links(&url, &document);
@@ -125,7 +139,7 @@ fn core_thread(
     monitor: MonitorHandle,
 ) {
     let index = Arc::new(Index::new(core_id, config.clone()));
-    let robots = Arc::new(RobotsChecker::new());
+    let robots = Arc::new(RobotsChecker::new(monitor.clone()));
 
     let mut rt = runtime::Builder::new()
         .basic_scheduler()

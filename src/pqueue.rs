@@ -32,6 +32,7 @@ impl DiskPQueueSender {
 
 pub struct DiskPQueue {
     config: Config,
+    monitor: MonitorHandle,
     work_sender: Sender<Job>,
     event_receivers: Receiver<PQueueEvent>,
     thread_event_senders: Vec<Sender<DiskThreadEvent>>,
@@ -46,7 +47,7 @@ enum PageEvent {
 }
 
 impl DiskPQueue {
-    pub fn spawn(config: Config) -> (DiskPQueueSender, DiskPQueueReceiver) {
+    pub fn spawn(config: Config, monitor: MonitorHandle) -> (DiskPQueueSender, DiskPQueueReceiver) {
         let (work_sender, work_receiver) = work_channel();
         let (event_sender, event_receiver) = channel();
         let mut thread_event_senders = Vec::new();
@@ -64,6 +65,7 @@ impl DiskPQueue {
         cache.push(0, Page::init(&config));
         let pqueue = DiskPQueue {
             config,
+            monitor,
             work_sender,
             event_receiver,
             thread_event_senders,
@@ -132,7 +134,7 @@ impl DiskPQueue {
         let (initial_bounds, id) = self.page_table.get_key_value(&job.cmp_ref()).unwrap();
         match self.query_cache(id) {
             Some(page) => {
-                if let Some(new_page) = page.increment(job) {
+                if let Some(new_page) = page.increment(job, &self.monitor) {
                     // update old page
                     self.page_table.remove(initial_bounds);
                     self.page_table.insert(page.bounds, id);

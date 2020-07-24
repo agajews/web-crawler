@@ -9,6 +9,18 @@ pub struct Index {
 }
 
 impl Index {
+    pub fn new(core_id: usize, config: Config) -> Index {
+        Index {
+            config,
+            cache: BTreeMap::new(),
+            urls: Vec::new(),
+            term_counts: Vec::new(),
+            url_id: 0,
+            db_count: 0,
+            dir: confnig.index_path.join(format!("core{}", core_id)),
+        }
+    }
+
     pub fn insert(&mut self, job: Job, n_terms: u32, terms: BTreeMap<String, u8>) {
         for (term, count) in terms {
             let encoder = match self.cache.get_mut(&key) {
@@ -25,8 +37,9 @@ impl Index {
         self.urls.push(job.url);
 
         self.url_id += 1;
-        if self.url_id % self.config.index_cap == 0 {
+        if self.url_id == self.config.index_cap {
             self.dump();
+            self.url_id = 0;
         }
     }
 

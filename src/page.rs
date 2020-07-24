@@ -13,11 +13,14 @@ impl Page {
         }
     }
 
-    pub fn increment(&mut self, job: Job) -> Option<Page> {
+    pub fn increment(&mut self, job: Job, monitor: &MonitorHandle) -> Option<Page> {
         assert!(job.url >= Marker::finite(self.bounds.left) && job.url < Marker::finite(self.bounds.right));
         match self.entries.binary_search_by_key(job.url, |(url, _, _)| url) {
             Ok(i) => self.entries[i].1 += 1,
-            Err(i) => self.entries.insert(i, (job.url, 1, false)),
+            Err(i) => {
+                monitor.inc_seen_urls();
+                self.entries.insert(i, (job.url, 1, false));
+            },
         }
         if self.entries.len() > self.capacity {
             return Some(self.split());
