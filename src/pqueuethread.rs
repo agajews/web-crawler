@@ -18,11 +18,13 @@ struct DiskPQueueThread {
 impl DiskPQueueThread {
     fn spawn(tid: usize, config: Config, pqueue_sender: Sender<PQueueEvent>) -> Sender<DiskThreadEvent> {
         let (event_sender, event_receiver) = channel();
+        let path = config.pqueue_path.join(format!("shard{}", tid));
         let pqueue_thread = DiskPQueueThread {
             config,
             event_receiver,
             pqueue_sender,
             file_len: 0,
+            file: fs::File::create(path),
         };
         thread::spawn(move || pqueue_thread.run());
         event_sender

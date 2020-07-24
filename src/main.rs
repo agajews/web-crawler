@@ -1,7 +1,7 @@
 struct Crawler {
     config: Config,
-    index: Arc<Mutex<Index>>,
-    robots: Arc<Mutex<RobotsChecker>>,
+    index: Arc<Index>,
+    robots: Arc<RobotsChecker>,
     scheduler: SchedulerHandle,
     pqueue: DiskPQueueSender,
     monitor: MonitorHandle,
@@ -11,8 +11,8 @@ struct Crawler {
 impl Crawler {
     pub fn new(
         config: Config,
-        index: Arc<Mutex<Index>>,
-        robots: Arc<Mutex<RobotsChecker>>,
+        index: Arc<Index>,
+        robots: Arc<RobotsChecker>,
         scheduler: SchedulerHandle,
         pqueue: DiskPQueueSender,
         monitor: MonitorHandle,
@@ -43,7 +43,30 @@ impl Crawler {
         }
     }
 
-    async fn do_job(&self, job: Job) {
+    async fn do_job(&self, job: Job) -> Result<JobStatus, Box<dyn Error>> {
+        let url = Url::parse(job.url).unwrap();
+        if !self.robots.allowed(&self.client, url) {
+            return Ok(JobStatus::Skipped);
+        }
+
+        let res = self.client.get(url).await?;
+        let headers = res.headers();
+        if self.headers_not_html(&headers) {
+            return Ok(JobStatus::Skipped);
+        }
+        if let Some(content_length) = res.content_length() {
+            if content_length > 100_000_000 {
+                println!("megawebsite of length {}: {}", job.url, content_length);
+            }
+        }
+
+        let document = client.read_capped_bytes(self.config.max_document_len);
+        let document = String::from_utf8_lossy(document);
+
+        self.add_links(&document);
+        self.index_document(&document);
+
+        Ok(JobStatus::Success)
     }
 }
 
@@ -54,8 +77,8 @@ fn core_thread(
     pqueue: DiskPQueueSender,
     monitor: MonitorHandle,
 ) {
-    let index = Arc::new(Mutex::new(Index::new(core_id, config.clone())));
-    let robots = Arc::new(Mutex::new(RobotsChecker::new()));
+    let index = Arc::new(Index::new(core_id, config.clone()));
+    let robots = Arc::new(RobotsChecker::new());
 
     let mut rt = runtime::Builder::new()
         .basic_scheduler()
