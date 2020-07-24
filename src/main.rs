@@ -28,7 +28,7 @@ impl Crawler {
             scheduler,
             pqueue,
             monitor,
-            client: Client::new(),
+            client: Client::new(config.client_refresh_interval),
             link_re: Regex::new("href=['\"][^'\"]+['\"]").unwrap(),
             body_re: Regex::new(r"(?s)<body[^<>]*>.*(</body>|<script>)?").unwrap(),
             tag_text_re: Regex::new(r">([^<>]+)").unwrap(),
@@ -68,7 +68,7 @@ impl Crawler {
             }
         }
 
-        let document = client.read_capped_bytes(self.config.max_document_len);
+        let document = Client::read_capped_bytes(res, self.config.max_document_len);
         let document = String::from_utf8_lossy(document);
 
         self.add_links(&url, &document);

@@ -34,7 +34,7 @@ impl RobotsChecker {
 
     async fn fetch_robots(url: &Url, client: &Client) -> Option<Vec<String>> {
         let res = client.get(url.join("/robots.txt").ok()?).await.ok()?;
-        let robots = client.read_capped_bytes(self.config.max_document_len);
+        let robots = Client::read_capped_bytes(res, self.config.max_document_len);
         let robots = String::from_utf8_lossy(robots);
         let mut prefixes = Vec::new();
         let mut should_match = false;
