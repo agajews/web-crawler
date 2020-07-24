@@ -6,6 +6,10 @@ struct Crawler {
     pqueue: DiskPQueueSender,
     monitor: MonitorHandle,
     client: Client,
+    link_re: Regex,
+    body_re: Regex,
+    tag_text_re: Regex,
+    term_re: Regex,
 }
 
 impl Crawler {
@@ -25,6 +29,10 @@ impl Crawler {
             pqueue,
             monitor,
             client: Client::new(),
+            link_re: Regex::new("href=['\"][^'\"]+['\"]").unwrap(),
+            body_re: Regex::new(r"(?s)<body[^<>]*>.*(</body>|<script>)?").unwrap(),
+            tag_text_re: Regex::new(r">([^<>]+)").unwrap(),
+            term_re: Regex::new(r"[a-zA-Z]+").unwrap(),
         }
     }
 
@@ -63,10 +71,48 @@ impl Crawler {
         let document = client.read_capped_bytes(self.config.max_document_len);
         let document = String::from_utf8_lossy(document);
 
-        self.add_links(&document);
-        self.index_document(&document);
+        self.add_links(&url, &document);
+        self.index_document(&job, &document);
 
         Ok(JobStatus::Success)
+    }
+
+    fn add_links(&self, base_url: &Url, document: &str) {
+        let links = self.link_re.find_iter(document)
+            .map(|m| m.as_str())
+            .map(|s| &s[6..s.len() - 1])
+            .filter_map(|href| base_url.join(href).ok())
+            .map(|mut url| {
+                url.set_fragment(None);
+                url.set_query(None);
+                url.as_str()
+            })
+            .filter(|url| !clearly_not_html(url))
+            .filter(|url| url.len <= self.config.max_url_len)
+            .collect::<Vec<_>>();
+
+        for link in links {
+            self.pqueue.increment(Job::new(link));
+        }
+    }
+
+    fn index_document(&self, job: &Job, document: &str) {
+        let mut terms = BTreeMap::<String, u32>::new();
+        let body = self.body_re.find(document)?.as_str();
+        let mut n_terms: u32 = 0;
+        for tag_text in self.tag_text_re.captures_iter(body) {
+            for term in self.term_re.find_iter(&tag_text[1]) {
+                let term = term.as_str().to_lowercase();
+                *terms.entry(&term).or_default(0) += 1;
+                n_terms += 1;
+            }
+        }
+
+        let terms = terms.into_iter()
+            .map(|(term, count)| (term, std::cmp::min((count * 2550) / n_terms, 255) as u8))
+            .collect::<BTreeMap<_, _>>();
+
+        self.index.insert(job, n_terms, terms);
     }
 }
 
