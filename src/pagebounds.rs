@@ -100,7 +100,7 @@ impl Ord for PageBounds {
         if self.left == other.left && self.right == other.right {
             return Ordering::Equal;
         }
-        println!("failing at comparison of {:?} with {:?}", self, other);
+        // println!("failing at comparison of {:?} with {:?}", self, other);
         panic!("cannot compare partially-overlapping pages");
     }
 }

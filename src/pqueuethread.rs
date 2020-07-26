@@ -57,7 +57,7 @@ impl DiskPQueueThread {
         let offset = &self.offsets[&id];
         let mut bytes = vec![0 as u8; self.config.page_size_bytes];
         self.file.seek(SeekFrom::Start(*offset)).unwrap();
-        println!("reading page {} from offset {}", id, *offset);
+        // println!("reading page {} from offset {}", id, *offset);
         self.file.read_exact(&mut bytes).unwrap();
         let page = Page::deserialize(&self.config, bytes);
         self.pqueue_sender.send(PQueueEvent::ReadResponse(id, page)).unwrap();
@@ -68,13 +68,12 @@ impl DiskPQueueThread {
             Some(&offset) => self.write_to_offset(offset, page),
             None => {
                 let offset = self.file_len;
-                println!("writing page {} to offset {}", id, offset);
+                // println!("writing page {} to offset {}", id, offset);
                 self.write_to_offset(offset, page);
                 self.file_len += self.config.page_size_bytes as u64;
                 self.offsets.insert(id, offset);
             },
         }
-        self.pqueue_sender.send(PQueueEvent::WriteResponse(id)).unwrap();
     }
 
     fn write_to_offset(&mut self, offset: u64, page: Page) {

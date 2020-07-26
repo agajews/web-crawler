@@ -52,7 +52,6 @@ pub struct DiskPQueue {
     page_table: BTreeMap<PageBoundsCmp, usize>,
     pqueue: PriorityQueue<usize, u32>,
     cache: BTreeCache<usize, Page>,
-    write_map: BTreeMap<usize, Page>,
     read_map: BTreeMap<usize, Vec<PageEvent>>,
 }
 
@@ -88,7 +87,6 @@ impl DiskPQueue {
             config: config.clone(),
             page_table: page_table,
             pqueue: pqueue,
-            write_map: BTreeMap::new(),
             read_map: BTreeMap::new(),
         };
         thread::spawn(move || pqueue.run(event_receiver));
@@ -104,34 +102,29 @@ impl DiskPQueue {
         (sender, receiver)
     }
 
-    fn cache_page(event_senders: &[Sender<DiskThreadEvent>], config: &Config, cache: &mut BTreeCache<usize, Page>, write_map: &mut BTreeMap<usize, Page>, id: usize, page: Page) {
+    fn cache_page(event_senders: &[Sender<DiskThreadEvent>], config: &Config, cache: &mut BTreeCache<usize, Page>, id: usize, page: Page) {
         cache.insert(id, page);
         if cache.len() > config.pqueue_cache_cap {
             let (old_id, old_page) = cache.remove_oldest().unwrap();
-            write_map.insert(old_id, old_page.clone());
             Self::write_page(event_senders, old_id, old_page);
         }
     }
 
-    fn query_cache<'a>(cache: &'a mut BTreeCache<usize, Page>, write_map: &'a mut BTreeMap<usize, Page>, id: usize) -> Option<&'a mut Page> {
+    fn query_cache<'a>(cache: &'a mut BTreeCache<usize, Page>, id: usize) -> Option<&'a mut Page> {
         cache.get_mut(&id)
-            .or_else(move || write_map.get_mut(&id))
     }
 
     fn run(&mut self, event_receiver: Receiver<PQueueEvent>) {
         for event in event_receiver {
             match event {
                 PQueueEvent::ReadResponse(id, page) => {
-                    let Self { ref mut cache, ref mut write_map, ref mut thread_event_senders, ref config, .. } = *self;
-                    Self::cache_page(thread_event_senders, config, cache, write_map, id, page);
+                    let Self { ref mut cache, ref mut thread_event_senders, ref config, .. } = *self;
+                    Self::cache_page(thread_event_senders, config, cache, id, page);
                     for action in self.read_map.remove(&id).unwrap() {
                         match action {
                             PageEvent::Inc(job) => self.increment(job),
                         }
                     }
-                },
-                PQueueEvent::WriteResponse(id) => {
-                    self.write_map.remove(&id);
                 },
                 PQueueEvent::IncRequest(job) => {
                     self.increment(job);
@@ -144,10 +137,10 @@ impl DiskPQueue {
     }
 
     fn increment(&mut self, job: Job) {
-        let Self { ref mut page_table, ref mut pqueue, ref mut cache, ref mut write_map, ref monitor, ref mut read_map, ref mut thread_event_senders, ref config, .. } = *self;
+        let Self { ref mut page_table, ref mut pqueue, ref mut cache, ref monitor, ref mut read_map, ref mut thread_event_senders, ref config, .. } = *self;
         let (initial_bounds, &id) = page_table.get_key_value(&job.cmp_ref()).unwrap();
         let initial_bounds = (*initial_bounds).clone();
-        match Self::query_cache(cache, write_map, id) {
+        match Self::query_cache(cache, id) {
             Some(page) => {
                 let res = page.increment(job, monitor);
                 pqueue.change_priority(&id, page.value);
@@ -163,7 +156,7 @@ impl DiskPQueue {
                     let new_id = page_table.len();
                     page_table.insert(new_page.bounds_cmp(), new_id);
                     pqueue.push(new_id, new_page.value);
-                    Self::cache_page(thread_event_senders, config, cache, write_map, new_id, new_page);
+                    Self::cache_page(thread_event_senders, config, cache, new_id, new_page);
                 }
             },
             None => {
@@ -178,9 +171,9 @@ impl DiskPQueue {
     }
 
     fn pop(&mut self) -> Option<()> {
-        let Self { ref mut pqueue, ref mut cache, ref mut write_map, ref work_sender, ref mut read_map, ref thread_event_senders, .. } = *self;
+        let Self { ref mut pqueue, ref mut cache, ref work_sender, ref mut read_map, ref thread_event_senders, .. } = *self;
         let (&id, &priority) = pqueue.peek()?;
-        match Self::query_cache(cache, write_map, id) {
+        match Self::query_cache(cache, id) {
             Some(page) => {
                 match page.pop() {
                     Some(job) => {
@@ -190,8 +183,11 @@ impl DiskPQueue {
                         work_sender.send(Some(job)).unwrap();
                     },
                     None => {
-                        // println!("failed to pop job");
-                        work_sender.send(None).unwrap();
+                        if priority > 0 {
+                            panic!("failed to pop job with supposed priority {}", priority);
+                        } else {
+                            work_sender.send(None).unwrap();
+                        }
                     }
                 }
             },

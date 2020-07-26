@@ -30,18 +30,18 @@ impl Page {
     pub fn increment(&mut self, job: Job, monitor: &MonitorHandle) -> Option<Page> {
         // println!("incrementing {} on {:?}", job.url, self.bounds);
         assert!(Marker::Finite(job.url.clone()) >= self.bounds.left && Marker::Finite(job.url.clone()) < self.bounds.right);
-        let new_value = match self.entries.binary_search_by_key(&job.url, |(url, _, _)| url.clone()) {
+        let (new_value, popped) = match self.entries.binary_search_by_key(&job.url, |(url, _, _)| url.clone()) {
             Ok(i) => {
                 self.entries[i].1 += 1;
-                self.entries[i].1
+                (self.entries[i].1, self.entries[i].2)
             },
             Err(i) => {
                 monitor.inc_seen_urls();
                 self.entries.insert(i, (job.url, 1, false));
-                1
+                (1, false)
             },
         };
-        if new_value > self.value {
+        if !popped && new_value > self.value {
             self.value = new_value;
         }
         if self.entries.len() > self.capacity {
@@ -107,7 +107,7 @@ impl Page {
         let n_entries = u32::from_be_bytes(bytes[0..4].try_into().unwrap()) as usize;
         let bounds_len = u32::from_be_bytes(bytes[4..8].try_into().unwrap()) as usize;
         let bounds = PageBounds::deserialize(&bytes[8..(8 + bounds_len)]);
-        println!("deserialized bounds {:?}", bounds);
+        // println!("deserialized bounds {:?}", bounds);
         let mut i = 8 + bounds_len;
         let mut entries = Vec::with_capacity(n_entries);
         for _ in 0..n_entries {
