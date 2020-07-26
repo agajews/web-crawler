@@ -7,6 +7,7 @@ use rand::prelude::*;
 use std::time::Duration;
 use std::error::Error;
 use tokio::stream::StreamExt;
+use url::Url;
 
 pub struct Client {
     client: reqwest::Client,
@@ -36,12 +37,12 @@ impl Client {
         }
     }
 
-    pub async fn get(&mut self, url: String) -> Result<reqwest::Response, Box<dyn Error>> {
+    pub async fn get(&mut self, url: Url) -> Result<reqwest::Response, Box<dyn Error>> {
         self.request_count += 1;
         if self.request_count % self.refresh_interval == 0 {
             self.refresh();
         }
-        Ok(self.client.get(&url).send().await?)
+        Ok(self.client.get(url).send().await?)
     }
 
     fn build_client(user_agent: &str, ip: IpAddr) -> reqwest::Client {

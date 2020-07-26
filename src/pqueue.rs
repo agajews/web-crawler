@@ -58,7 +58,6 @@ pub struct DiskPQueue {
 
 enum PageEvent {
     Inc(Job),
-    Pop,
 }
 
 impl DiskPQueue {
@@ -124,7 +123,6 @@ impl DiskPQueue {
                     for action in self.read_map.remove(&id).unwrap() {
                         match action {
                             PageEvent::Inc(job) => self.increment(job),
-                            _ => (),
                         }
                     }
                 },

@@ -22,6 +22,7 @@ pub struct Config {
     pub crawler_empty_delay: Duration,
     pub root_set: Vec<&'static str>,
     pub user_agent: String,
+    pub n_threads: usize,
 }
 
 impl Config {
@@ -51,6 +52,7 @@ impl Config {
                 "https://cam.ac.uk",
             ],
             user_agent: String::from("Rustbot/0.3"),
+            n_threads: 50,
         };
 
         Some(config)

@@ -35,8 +35,8 @@ impl MonitorHandle {
         self.seen_urls.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub fn inc_response_time(&self) {
-        self.response_time.fetch_add(1, Ordering::Relaxed);
+    pub fn inc_response_time(&self, millis: u128) {
+        self.response_time.fetch_add(millis as usize, Ordering::Relaxed);
     }
 
     pub fn inc_robots_hits(&self) {

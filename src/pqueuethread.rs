@@ -72,7 +72,7 @@ impl DiskPQueueThread {
         let bytes = page.serialize(&self.config);
         assert!(bytes.len() <= self.config.page_size_bytes);
         self.file.seek(SeekFrom::Start(offset)).unwrap();
-        self.file.write_all(&bytes);
-        self.file.sync_all();
+        self.file.write_all(&bytes).unwrap();
+        self.file.sync_all().unwrap();
     }
 }

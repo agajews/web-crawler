@@ -22,9 +22,22 @@ pub struct Scheduler {
     stashed_job: Option<Job>,
 }
 
+#[derive(Clone)]
 pub struct SchedulerHandle {
     empty_sender: Sender<usize>,
     register_sender: Sender<(WorkSender<Job>, Sender<usize>)>,
+}
+
+impl SchedulerHandle {
+    pub fn register(&self, work_sender: WorkSender<Job>) -> usize {
+        let (tid_sender, tid_receiver) = channel();
+        self.register_sender.send((work_sender, tid_sender)).unwrap();
+        tid_receiver.recv().unwrap()
+    }
+
+    pub fn mark_empty(&self, tid: usize) {
+        self.empty_sender.send(tid).unwrap();
+    }
 }
 
 impl Scheduler {

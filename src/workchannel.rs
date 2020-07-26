@@ -1,7 +1,6 @@
 use std::sync::Arc;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{Sender, Receiver, channel};
-use std::error::Error;
 
 
 #[derive(Clone)]
@@ -11,10 +10,10 @@ pub struct WorkSender<T> {
 }
 
 impl<T: 'static + Send> WorkSender<T> {
-    pub fn send(&self, message: T) -> Result<(), Box<dyn Error>> {
-        self.sender.send(message)?;
+    pub fn send(&self, message: T) -> Option<()> {
+        self.sender.send(message).ok()?;
         self.length.fetch_add(1, Ordering::Relaxed);
-        Ok(())
+        Some(())
     }
 
     pub fn len(&self) -> usize {
@@ -28,10 +27,10 @@ pub struct WorkReceiver<T> {
 }
 
 impl<T: Send> WorkReceiver<T> {
-    pub fn try_recv(&self) -> Result<T, Box<dyn Error>> {
-        let message = self.receiver.try_recv()?;
+    pub fn try_recv(&self) -> Option<T> {
+        let message = self.receiver.try_recv().ok()?;
         self.length.fetch_sub(1, Ordering::Relaxed);
-        Ok(message)
+        Some(message)
     }
 
     pub fn len(&self) -> usize {
