@@ -96,7 +96,7 @@ impl Monitor {
                  (new_failed - old_failed) as f32 / (new_completed - old_completed) as f32 * 100.0,
                  (new_skipped - old_skipped) as f32 / (new_completed - old_completed) as f32 * 100.0,
                  (new_time - old_time) as f32 / (new_successful - old_successful) as f32,
-                 (new_total_priority - old_total_priority) / (new_completed - old_completed),
+                 (new_total_priority - old_total_priority) as f32 / (new_completed - old_completed) as f32,
                  (new_robots_hits - old_robots_hits) as f32 / (new_completed - old_completed) as f32 * 100.0,
                  new_completed,
                  self.handle.seen_urls.load(Ordering::Relaxed),

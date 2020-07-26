@@ -87,7 +87,8 @@ impl Page {
     }
 
     pub fn serialize(self, config: &Config) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(4 + (2 + config.max_url_len) * 2 + (1 + 4 + 1 + config.max_url_len) * self.entries.len());
+        // let mut bytes = Vec::with_capacity(4 + (2 + config.max_url_len) * 2 + (1 + 4 + 1 + config.max_url_len) * self.entries.len());
+        let mut bytes = Vec::with_capacity(config.page_size_bytes);
         bytes.extend_from_slice(&(self.entries.len() as u32).to_be_bytes());
         let bounds_bytes = self.bounds.serialize();
         bytes.extend_from_slice(&(bounds_bytes.len() as u32).to_be_bytes());
@@ -98,14 +99,16 @@ impl Page {
             bytes.extend_from_slice(&(popped as u8).to_be_bytes());
             bytes.extend_from_slice(url.as_bytes());
         }
+        bytes.resize(config.page_size_bytes, 0);
         bytes
     }
 
     pub fn deserialize(config: &Config, bytes: Vec<u8>) -> Page {
         let n_entries = u32::from_be_bytes(bytes[0..4].try_into().unwrap()) as usize;
-        let bounds_len = u32::from_be_bytes(bytes[8..12].try_into().unwrap()) as usize;
-        let bounds = PageBounds::deserialize(&bytes[12..(12 + bounds_len)]);
-        let mut i = 12 + bounds_len;
+        let bounds_len = u32::from_be_bytes(bytes[4..8].try_into().unwrap()) as usize;
+        let bounds = PageBounds::deserialize(&bytes[8..(8 + bounds_len)]);
+        println!("deserialized bounds {:?}", bounds);
+        let mut i = 8 + bounds_len;
         let mut entries = Vec::with_capacity(n_entries);
         for _ in 0..n_entries {
             let url_len = bytes[i] as usize;
@@ -115,6 +118,7 @@ impl Page {
             let popped = bytes[i] > 0;
             i += 1;
             let url = String::from_utf8(bytes[i..(i + url_len)].to_vec()).unwrap();
+            i += url_len;
             entries.push((url, count, popped));
         }
         let value = Self::compute_value(&entries);

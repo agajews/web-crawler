@@ -22,14 +22,22 @@ impl Marker {
 
     pub fn deserialize(i: &mut usize, encoded: &[u8]) -> Marker {
         match encoded[*i] {
-            0 => Marker::PosInf,
+            0 => {
+                *i += 1;
+                Marker::PosInf
+            },
             1 => {
                 *i += 1;
                 let url_len = encoded[*i] as usize;
                 *i += 1;
-                Marker::Finite(String::from_utf8(encoded[*i..(*i + url_len)].to_vec()).unwrap())
+                let res = Marker::Finite(String::from_utf8(encoded[*i..(*i + url_len)].to_vec()).unwrap());
+                *i += url_len;
+                res
             },
-            2 => Marker::NegInf,
+            2 => {
+                *i += 1;
+                Marker::NegInf
+            },
             _ => panic!("failed to deserialize marker"),
         }
     }
@@ -92,6 +100,7 @@ impl Ord for PageBounds {
         if self.left == other.left && self.right == other.right {
             return Ordering::Equal;
         }
+        println!("failing at comparison of {:?} with {:?}", self, other);
         panic!("cannot compare partially-overlapping pages");
     }
 }
