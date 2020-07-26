@@ -1,10 +1,10 @@
 use std::cmp::Ordering;
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug)]
 pub enum Marker {
-    PosInf,
-    Finite(String),
     NegInf,
+    Finite(String),
+    PosInf,
 }
 
 impl Marker {
@@ -35,7 +35,7 @@ impl Marker {
     }
 }
 
-#[derive(Eq, Clone)]
+#[derive(Eq, Clone, Debug)]
 pub struct PageBounds {
     pub left: Marker,
     pub right: Marker,
@@ -50,7 +50,10 @@ impl PageBounds {
     }
 
     fn cmp_value(&self, other: String) -> Ordering {
+        // println!("comparing ({:?}, {:?}) with {}", self.left, self.right, other);
         let other = Marker::Finite(other);
+        // println!("left <= other: {}", self.left <= other);
+        // println!("right > other: {}", self.right > other);
         if self.left <= other && self.right > other {
             return Ordering::Equal;
         }
@@ -105,10 +108,16 @@ impl PartialEq for PageBounds {
     }
 }
 
-#[derive(Eq, Clone)]
+#[derive(Eq, Clone, Debug)]
 pub enum PageBoundsCmp {
     Bounds(PageBounds),
     Value(String),
+}
+
+impl PageBoundsCmp {
+    pub fn init() -> PageBoundsCmp {
+        PageBoundsCmp::Bounds(PageBounds::new(Marker::NegInf, Marker::PosInf))
+    }
 }
 
 impl Ord for PageBoundsCmp {

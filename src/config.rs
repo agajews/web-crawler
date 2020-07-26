@@ -2,6 +2,8 @@ use std::env;
 use std::time::Duration;
 use std::path::PathBuf;
 
+const DEBUG: bool = true;
+
 #[derive(Clone)]
 pub struct Config {
     pub pqueue_path: PathBuf,
@@ -37,7 +39,7 @@ impl Config {
             max_url_len: 250,
             page_size_bytes: 4096 * 4,
             scheduler_queue_cap: 100,
-            n_pqueue_threads: 256,
+            n_pqueue_threads: if DEBUG { 2 } else { 256 },
             pqueue_cache_cap: 12_500_000,
             scheduler_sleep: Duration::from_millis(1),
             locality_clear_prob: 0.01,
@@ -51,8 +53,8 @@ impl Config {
                 "https://mit.edu",
                 "https://cam.ac.uk",
             ],
-            user_agent: String::from("Rustbot/0.3"),
-            n_threads: 50,
+            user_agent: String::from("Rustbot/0.4"),
+            n_threads: if DEBUG { 1 } else { 50 },
         };
 
         Some(config)

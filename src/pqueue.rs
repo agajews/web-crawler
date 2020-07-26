@@ -76,14 +76,18 @@ impl DiskPQueue {
         }
         let mut cache = BTreeCache::new();
         cache.insert(0, Page::init(&config));
+        let mut page_table = BTreeMap::new();
+        page_table.insert(PageBoundsCmp::init(), 0);
+        let mut pqueue = PriorityQueue::new();
+        pqueue.push(0, 0);
         let mut pqueue = DiskPQueue {
             monitor,
             work_sender,
             thread_event_senders,
             cache,
             config: config.clone(),
-            page_table: BTreeMap::new(),
-            pqueue: PriorityQueue::new(),
+            page_table: page_table,
+            pqueue: pqueue,
             write_map: BTreeMap::new(),
             read_map: BTreeMap::new(),
         };
@@ -147,7 +151,10 @@ impl DiskPQueue {
             Some(page) => {
                 let res = page.increment(job, monitor);
                 pqueue.change_priority(&id, page.value);
+                // println!("page {} has priority {}", id, page.value);
                 if let Some(new_page) = res {
+                    // println!("splitting off into a new page");
+                    // println!("left bounds: {:?}, right bounds: {:?}", page.bounds_cmp(), new_page.bounds_cmp());
                     // update old page
                     page_table.remove(&initial_bounds);
                     page_table.insert(page.bounds_cmp(), id);
@@ -156,7 +163,7 @@ impl DiskPQueue {
                     let new_id = page_table.len();
                     page_table.insert(new_page.bounds_cmp(), new_id);
                     pqueue.push(new_id, new_page.value);
-                    Self::cache_page(thread_event_senders, config, cache, write_map, id, new_page);
+                    Self::cache_page(thread_event_senders, config, cache, write_map, new_id, new_page);
                 }
             },
             None => {
@@ -172,15 +179,18 @@ impl DiskPQueue {
 
     fn pop(&mut self) -> Option<()> {
         let Self { ref mut pqueue, ref mut cache, ref mut write_map, ref work_sender, ref mut read_map, ref thread_event_senders, .. } = *self;
-        let (&id, _) = pqueue.peek()?;
+        let (&id, &priority) = pqueue.peek()?;
         match Self::query_cache(cache, write_map, id) {
             Some(page) => {
                 match page.pop() {
                     Some(job) => {
+                        self.monitor.inc_total_priority(priority);
+                        // println!("popping job {}", job.url);
                         pqueue.change_priority(&id, page.value);
                         work_sender.send(Some(job)).unwrap();
                     },
                     None => {
+                        // println!("failed to pop job");
                         work_sender.send(None).unwrap();
                     }
                 }

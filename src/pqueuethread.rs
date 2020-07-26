@@ -25,6 +25,7 @@ pub struct DiskPQueueThread {
 impl DiskPQueueThread {
     pub fn spawn(tid: usize, config: Config, pqueue_sender: Sender<PQueueEvent>) -> Sender<DiskThreadEvent> {
         let (event_sender, event_receiver) = channel();
+        fs::create_dir_all(&config.pqueue_path).unwrap();
         let path = config.pqueue_path.join(format!("shard{}", tid));
         let mut pqueue_thread = DiskPQueueThread {
             config,

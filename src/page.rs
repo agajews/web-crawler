@@ -28,6 +28,7 @@ impl Page {
     }
 
     pub fn increment(&mut self, job: Job, monitor: &MonitorHandle) -> Option<Page> {
+        // println!("incrementing {} on {:?}", job.url, self.bounds);
         assert!(Marker::Finite(job.url.clone()) >= self.bounds.left && Marker::Finite(job.url.clone()) < self.bounds.right);
         let new_value = match self.entries.binary_search_by_key(&job.url, |(url, _, _)| url.clone()) {
             Ok(i) => {
@@ -79,7 +80,7 @@ impl Page {
 
     fn compute_value(entries: &[(String, u32, bool)]) -> u32 {
         entries.iter()
-            .filter(|(_, _, popped)| *popped)
+            .filter(|(_, _, popped)| !*popped)
             .map(|(_, count, _)| *count)
             .max()
             .unwrap_or(0)
