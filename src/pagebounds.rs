@@ -105,7 +105,7 @@ impl PartialEq for PageBounds {
     }
 }
 
-#[derive(Eq)]
+#[derive(Eq, Clone)]
 pub enum PageBoundsCmp {
     Bounds(PageBounds),
     Value(String),

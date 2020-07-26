@@ -4,7 +4,7 @@ use url::Url;
 
 pub type JobLocality = String;
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub struct Job {
     pub url: String,
 }

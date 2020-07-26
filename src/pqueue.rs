@@ -101,28 +101,26 @@ impl DiskPQueue {
         (sender, receiver)
     }
 
-    fn cache_page(&mut self, id: usize, page: Page) {
-        self.cache.insert(id, page);
-        if self.cache.len() > self.config.pqueue_cache_cap {
-            let (old_id, old_page) = self.cache.remove_oldest().unwrap();
-            self.write_map.insert(old_id, old_page.clone());
-            self.write_page(old_id, old_page);
+    fn cache_page(event_senders: &[Sender<DiskThreadEvent>], config: &Config, cache: &mut BTreeCache<usize, Page>, write_map: &mut BTreeMap<usize, Page>, id: usize, page: Page) {
+        cache.insert(id, page);
+        if cache.len() > config.pqueue_cache_cap {
+            let (old_id, old_page) = cache.remove_oldest().unwrap();
+            write_map.insert(old_id, old_page.clone());
+            Self::write_page(event_senders, old_id, old_page);
         }
     }
 
-    fn query_cache(&mut self, id: usize) -> Option<&mut Page> {
-        if self.write_map.contains_key(&id) {
-            return self.write_map.get_mut(&id);
-        } else {
-            return self.cache.get_mut(&id);
-        }
+    fn query_cache<'a>(cache: &'a mut BTreeCache<usize, Page>, write_map: &'a mut BTreeMap<usize, Page>, id: usize) -> Option<&'a mut Page> {
+        cache.get_mut(&id)
+            .or_else(move || write_map.get_mut(&id))
     }
 
     fn run(&mut self, event_receiver: Receiver<PQueueEvent>) {
         for event in event_receiver {
             match event {
                 PQueueEvent::ReadResponse(id, page) => {
-                    self.cache_page(id, page);
+                    let Self { ref mut cache, ref mut write_map, ref mut thread_event_senders, ref config, .. } = *self;
+                    Self::cache_page(thread_event_senders, config, cache, write_map, id, page);
                     for action in self.read_map.remove(&id).unwrap() {
                         match action {
                             PageEvent::Inc(job) => self.increment(job),
@@ -144,28 +142,30 @@ impl DiskPQueue {
     }
 
     fn increment(&mut self, job: Job) {
-        let (initial_bounds, id) = self.page_table.get_key_value(&job.cmp_ref()).unwrap();
-        let (initial_bounds, id) = (initial_bounds.clone(), id.clone());
-        match self.query_cache(id) {
+        let Self { ref mut page_table, ref mut pqueue, ref mut cache, ref mut write_map, ref monitor, ref mut read_map, ref mut thread_event_senders, ref config, .. } = *self;
+        let (initial_bounds, &id) = page_table.get_key_value(&job.cmp_ref()).unwrap();
+        let initial_bounds = (*initial_bounds).clone();
+        match Self::query_cache(cache, write_map, id) {
             Some(page) => {
-                if let Some(new_page) = page.increment(job, &self.monitor) {
+                let res = page.increment(job, monitor);
+                pqueue.change_priority(&id, page.value);
+                if let Some(new_page) = res {
                     // update old page
-                    self.page_table.remove(initial_bounds);
-                    self.page_table.insert(page.bounds_cmp(), id);
+                    page_table.remove(&initial_bounds);
+                    page_table.insert(page.bounds_cmp(), id);
 
                     // insert new page
-                    let new_id = self.page_table.len();
-                    self.page_table.insert(new_page.bounds_cmp(), new_id);
-                    self.cache_page(new_id, new_page);
-                    self.pqueue.push(new_id, new_page.value);
+                    let new_id = page_table.len();
+                    page_table.insert(new_page.bounds_cmp(), new_id);
+                    pqueue.push(new_id, new_page.value);
+                    Self::cache_page(thread_event_senders, config, cache, write_map, id, new_page);
                 }
-                self.pqueue.change_priority(&id, page.value);
             },
             None => {
-                if !self.read_map.contains_key(&id) {
-                    self.request_page(id);
+                if !read_map.contains_key(&id) {
+                    Self::request_page(thread_event_senders, id);
                 }
-                self.read_map.entry(id)
+                read_map.entry(id)
                     .or_insert(Vec::new())
                     .push(PageEvent::Inc(job));
             },
@@ -173,35 +173,36 @@ impl DiskPQueue {
     }
 
     fn pop(&mut self) -> Option<()> {
-        let (id, _) = self.pqueue.peek()?;
-        match self.query_cache(*id) {
+        let Self { ref mut pqueue, ref mut cache, ref mut write_map, ref work_sender, ref mut read_map, ref thread_event_senders, .. } = *self;
+        let (&id, _) = pqueue.peek()?;
+        match Self::query_cache(cache, write_map, id) {
             Some(page) => {
                 match page.pop() {
                     Some(job) => {
-                        self.pqueue.change_priority(id, page.value);
-                        self.work_sender.send(Some(job)).unwrap();
+                        pqueue.change_priority(&id, page.value);
+                        work_sender.send(Some(job)).unwrap();
                     },
                     None => {
-                        self.work_sender.send(None).unwrap();
+                        work_sender.send(None).unwrap();
                     }
                 }
             },
             None => {
-                self.work_sender.send(None).unwrap();
-                if !self.read_map.contains_key(id) {
-                    self.request_page(*id);
-                    self.read_map.insert(*id, Vec::new());
+                work_sender.send(None).unwrap();
+                if !read_map.contains_key(&id) {
+                    Self::request_page(thread_event_senders, id);
+                    read_map.insert(id, Vec::new());
                 }
             }
         }
         Some(())
     }
 
-    fn request_page(&mut self, id: usize) {
-        self.thread_event_senders[id % self.thread_event_senders.len()].send(DiskThreadEvent::Read(id)).unwrap();
+    fn request_page(event_senders: &[Sender<DiskThreadEvent>], id: usize) {
+        event_senders[id % event_senders.len()].send(DiskThreadEvent::Read(id)).unwrap();
     }
 
-    fn write_page(&mut self, id: usize, page: Page) {
-        self.thread_event_senders[id % self.thread_event_senders.len()].send(DiskThreadEvent::Write(id, page)).unwrap();
+    fn write_page(event_senders: &[Sender<DiskThreadEvent>], id: usize, page: Page) {
+        event_senders[id % event_senders.len()].send(DiskThreadEvent::Write(id, page)).unwrap();
     }
 }

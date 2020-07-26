@@ -31,7 +31,7 @@ impl Scheduler {
     pub fn spawn(pqueue: DiskPQueueReceiver, config: Config) -> (JoinHandle<()>, SchedulerHandle) {
         let (empty_sender, empty_receiver) = channel();
         let (register_sender, register_receiver) = channel();
-        let scheduler = Scheduler {
+        let mut scheduler = Scheduler {
             empty_receiver,
             register_receiver,
             pqueue,
@@ -65,7 +65,7 @@ impl Scheduler {
             }
 
             if let Some(job) = self.pop_job() {
-                if let None = self.try_assign(job) {
+                if let None = self.try_assign(job.clone()) {
                     self.stash_job(job);
                     sleep(self.config.scheduler_sleep);
                 }
@@ -74,13 +74,14 @@ impl Scheduler {
     }
 
     fn assign_job(&mut self, tid: usize, job: Job) {
-        self.work_senders[tid].send(job).unwrap();
         self.add_locality(tid, job.locality());
-        if thread_rng().gen::<f32>() < self.config.locality_clear_prob {
-            for locality in &self.tid_localities[tid] {
-                self.remove_locality(tid, locality);
+        self.work_senders[tid].send(job).unwrap();
+        let Self { ref mut recent_domains, ref mut tid_localities, ref config, .. } = *self;
+        if thread_rng().gen::<f32>() < config.locality_clear_prob {
+            for locality in &tid_localities[tid] {
+                Self::remove_locality(recent_domains, tid, locality);
             }
-            self.tid_localities[tid].clear();
+            tid_localities[tid].clear();
         }
     }
 
@@ -91,14 +92,14 @@ impl Scheduler {
                 self.tid_localities[tid].push(locality);
             },
             None => {
-                self.recent_domains.insert(locality, vec![tid]);
                 self.tid_localities[tid].push(locality.clone());
+                self.recent_domains.insert(locality, vec![tid]);
             },
         }
     }
 
-    fn remove_locality(&mut self, tid: usize, locality: &JobLocality) {
-        let tids = self.recent_domains.get_mut(locality).unwrap();
+    fn remove_locality(recent_domains: &mut BTreeMap<JobLocality, Vec<usize>>, tid: usize, locality: &JobLocality) {
+        let tids = recent_domains.get_mut(locality).unwrap();
         for i in 0..tids.len() {
             if tids[i] == tid {
                 tids.remove(i);
@@ -108,11 +109,9 @@ impl Scheduler {
     }
 
     fn pop_job(&mut self) -> Option<Job> {
-        if let Some(job) = self.stashed_job {
-            self.stashed_job = None;
-            return Some(job);
-        }
-        self.pqueue.pop()
+        let Self { ref mut stashed_job, ref mut pqueue, .. } = *self;
+        stashed_job.take()
+            .or_else(|| pqueue.pop())
     }
 
     fn stash_job(&mut self, job: Job) {
@@ -122,12 +121,10 @@ impl Scheduler {
 
     fn try_assign(&mut self, job: Job) -> Option<()> {
         let tids = self.recent_domains.get(&job.locality())?;
-        for tid in tids {
-            if self.work_senders[*tid].len() < self.config.work_queue_cap {
-                self.assign_job(*tid, job);
-                return Some(());
-            }
-        }
-        return None;
+        tids.iter()
+            .filter(|tid| self.work_senders[**tid].len() < self.config.work_queue_cap)
+            .map(|tid| *tid)
+            .next()
+            .map(|tid| self.assign_job(tid, job))
     }
 }
