@@ -19,6 +19,8 @@ use tokio::runtime;
 use tokio::time::delay_for;
 use http::{Uri, HeaderMap};
 use url::Url;
+use rand::Rng;
+use rand::thread_rng;
 
 enum JobStatus {
     Success,
@@ -77,7 +79,7 @@ impl Crawler {
                         Ok(JobStatus::Skipped) => self.monitor.inc_skipped_jobs(),
                         Err(err) => {
                             self.monitor.inc_failed_jobs();
-                            if tid % 100 == 0 {
+                            if thread_rng().gen::<f32>() < 0.02 {
                                 println!("error crawling {}: {:?}", job.url, err);
                             }
                         }
@@ -136,7 +138,9 @@ impl Crawler {
     }
 
     async fn do_job(&mut self, job: Job) -> Result<JobStatus, Box<dyn Error>> {
-        println!("crawling {}", job.url);
+        if thread_rng().gen::<f32>() < 0.02 {
+            println!("crawling {}", job.url);
+        }
         let url = Url::parse(&job.url).unwrap();
         if !self.robots.allowed(&url, &mut self.client).await {
             return Ok(JobStatus::Skipped);
