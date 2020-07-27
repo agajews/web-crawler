@@ -35,7 +35,7 @@ impl Config {
             index_cap: if debug { 100 } else { 100_000 },
             max_document_len: 256_000,
             // page_capacity: 60,
-            page_capacity: 1000,
+            page_capacity: 10_000,
             max_url_len: 250,
             page_size_bytes: 4096 * 4,
             scheduler_queue_cap: 100,
