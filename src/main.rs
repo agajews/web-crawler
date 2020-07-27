@@ -128,10 +128,14 @@ impl Crawler {
             url.ends_with(".JPG") ||
             url.ends_with(".gif") ||
             url.ends_with(".GIF") ||
+            url.ends_with(".svg") ||
+            url.ends_with(".SVG") ||
+            url.ends_with(".json") ||
             !url.starts_with("http")
     }
 
     async fn do_job(&mut self, job: Job) -> Result<JobStatus, Box<dyn Error>> {
+        println!("crawling {}", job.url);
         let url = Url::parse(&job.url).unwrap();
         if !self.robots.allowed(&url, &mut self.client).await {
             return Ok(JobStatus::Skipped);
@@ -139,6 +143,7 @@ impl Crawler {
 
         let start = Instant::now();
         let res = self.client.get(url.clone()).await?;
+        let final_url = res.url().clone();
         let headers = res.headers();
         if Self::headers_not_html(&headers) {
             return Ok(JobStatus::Skipped);
@@ -153,7 +158,7 @@ impl Crawler {
         self.monitor.inc_response_time(start.elapsed().as_millis());
         let document = String::from_utf8_lossy(&document);
 
-        self.add_links(&url, &document);
+        self.add_links(&final_url, &document);
         self.index_document(job, &document);
 
         Ok(JobStatus::Success)

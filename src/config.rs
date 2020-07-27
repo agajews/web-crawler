@@ -33,7 +33,7 @@ impl Config {
         let config = Config {
             pqueue_path: top_dir.join("pqueue"),
             index_path: top_dir.join("index"),
-            index_cap: 100_000,
+            index_cap: if DEBUG { 100 } else { 100_000 },
             max_document_len: 256_000,
             page_capacity: 60,
             max_url_len: 250,
