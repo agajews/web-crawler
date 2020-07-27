@@ -2,6 +2,7 @@ use crate::workchannel::WorkSender;
 use crate::pqueue::DiskPQueueReceiver;
 use crate::job::{Job, JobLocality};
 use crate::config::Config;
+use crate::monitor::MonitorHandle;
 
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::collections::BTreeMap;
@@ -12,6 +13,7 @@ use rand::Rng;
 use rand::thread_rng;
 
 pub struct Scheduler {
+    monitor: MonitorHandle,
     empty_receiver: Receiver<usize>,
     register_receiver: Receiver<(WorkSender<Job>, Sender<usize>)>,
     work_senders: Vec<WorkSender<Job>>,
@@ -41,10 +43,11 @@ impl SchedulerHandle {
 }
 
 impl Scheduler {
-    pub fn spawn(pqueue: DiskPQueueReceiver, config: Config) -> (JoinHandle<()>, SchedulerHandle) {
+    pub fn spawn(pqueue: DiskPQueueReceiver, config: Config, monitor: MonitorHandle) -> (JoinHandle<()>, SchedulerHandle) {
         let (empty_sender, empty_receiver) = channel();
         let (register_sender, register_receiver) = channel();
         let mut scheduler = Scheduler {
+            monitor,
             empty_receiver,
             register_receiver,
             pqueue,
@@ -80,6 +83,7 @@ impl Scheduler {
             if let Some(job) = self.pop_job() {
                 if let None = self.try_assign(job.clone()) {
                     self.stash_job(job);
+                    self.monitor.inc_scheduler_free();
                     sleep(self.config.scheduler_sleep);
                 }
             }

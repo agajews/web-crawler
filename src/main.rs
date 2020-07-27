@@ -258,7 +258,7 @@ fn main() {
     for url in &config.root_set {
         pqueue_sender.increment(Job::new(String::from(*url)));
     }
-    let (scheduler_thread, scheduler_handle) = Scheduler::spawn(pqueue_receiver, config.clone());
+    let (scheduler_thread, scheduler_handle) = Scheduler::spawn(pqueue_receiver, config.clone(), monitor_handle.clone());
 
     let core_ids = core_affinity::get_core_ids().unwrap();
     for core_id in core_ids {
