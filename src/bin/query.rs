@@ -204,10 +204,7 @@ fn spawn_threads(n_threads: usize) -> Vec<Sender<Job>> {
     let top_dir: PathBuf = env::var("CRAWLER_DIR").unwrap().into();
     let index_dir = top_dir.join("index");
 
-    let shard_paths = IndexShard::find_shards(&index_dir)
-        .into_iter()
-        .take(10)
-        .collect::<Vec<_>>();
+    let shard_paths = IndexShard::find_shards(&index_dir);
     println!("found {} shards", shard_paths.len());
     let shards_per_thread = (shard_paths.len() + n_threads - 1) / n_threads;
     let chunks = shard_paths.chunks(shards_per_thread);
