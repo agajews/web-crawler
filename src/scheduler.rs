@@ -137,11 +137,16 @@ impl Scheduler {
     }
 
     fn try_assign(&mut self, job: Job) -> Option<()> {
-        let tids = self.recent_domains.get(&job.locality())?;
-        tids.iter()
-            .filter(|tid| self.work_senders[**tid].len() < self.config.work_queue_cap)
-            .map(|tid| *tid)
-            .next()
-            .map(|tid| self.assign_job(tid, job))
+        match self.recent_domains.get(&job.locality()) {
+            Some(tids) => tids.iter()
+                .filter(|tid| self.work_senders[**tid].len() < self.config.work_queue_cap)
+                .map(|tid| *tid)
+                .next()
+                .map(|tid| self.assign_job(tid, job)),
+            None => {
+                let tid = thread_rng().gen::<usize>() % self.work_senders.len();
+                Some(self.assign_job(tid, job))
+            },
+        }
     }
 }
