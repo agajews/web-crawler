@@ -48,7 +48,7 @@ impl Config {
             work_queue_cap: 100,
             min_run_len: 32,
             client_refresh_interval: 100,
-            crawler_empty_delay: Duration::from_millis(10),
+            crawler_empty_delay: Duration::from_millis(1000),
             root_set: vec![
                 "https://columbia.edu",
                 "https://harvard.edu",
