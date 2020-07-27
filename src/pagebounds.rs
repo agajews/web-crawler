@@ -8,6 +8,17 @@ pub enum Marker {
 }
 
 impl Marker {
+    pub fn cmp_str(&self, other: &str) -> Ordering {
+        match self {
+            Marker::NegInf => Ordering::Less,
+            Marker::Finite(s) => {
+                let s: &str = s.as_ref();
+                s.cmp(other)
+            },
+            Marker::PosInf => Ordering::Greater,
+        }
+    }
+
     pub fn serialize(&self, encoded: &mut Vec<u8>) {
         match self {
             Marker::PosInf => encoded.push(0),
@@ -57,17 +68,16 @@ impl PageBounds {
         }
     }
 
-    fn cmp_value(&self, other: String) -> Ordering {
-        // println!("comparing ({:?}, {:?}) with {}", self.left, self.right, other);
-        let other = Marker::Finite(other);
-        // println!("left <= other: {}", self.left <= other);
-        // println!("right > other: {}", self.right > other);
-        if self.left <= other && self.right > other {
+    fn cmp_value(&self, other: &str) -> Ordering {
+        // left <= other < right
+        if self.left.cmp_str(other) != Ordering::Greater && self.right.cmp_str(other) == Ordering::Greater {
             return Ordering::Equal;
         }
-        if other < self.left {
+        // other < self.left
+        if self.left.cmp_str(other) == Ordering::Greater {
             return Ordering::Less;
         }
+        // other >= right
         return Ordering::Greater;
     }
 
@@ -133,8 +143,8 @@ impl Ord for PageBoundsCmp {
     fn cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
             (PageBoundsCmp::Bounds(a), PageBoundsCmp::Bounds(b)) => a.cmp(b),
-            (PageBoundsCmp::Bounds(a), PageBoundsCmp::Value(b)) => a.cmp_value(String::from(b)),
-            (PageBoundsCmp::Value(a), PageBoundsCmp::Bounds(b)) => b.cmp_value(String::from(a)).reverse(),
+            (PageBoundsCmp::Bounds(a), PageBoundsCmp::Value(b)) => a.cmp_value(b),
+            (PageBoundsCmp::Value(a), PageBoundsCmp::Bounds(b)) => b.cmp_value(a).reverse(),
             (PageBoundsCmp::Value(a), PageBoundsCmp::Value(b)) => a.cmp(b),
         }
     }
