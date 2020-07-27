@@ -43,7 +43,7 @@ impl Config {
                 12_500_000
                 // 1000
             },
-            scheduler_sleep: Duration::from_millis(1),
+            scheduler_sleep: Duration::from_millis(0),
             locality_clear_prob: 0.01,
             work_queue_cap: 100,
             min_run_len: 32,
