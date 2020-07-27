@@ -11,6 +11,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use priority_queue::PriorityQueue;
 use std::collections::BTreeMap;
 use std::thread;
+use std::thread::sleep;
 
 pub struct DiskPQueueReceiver {
     config: Config,
@@ -115,7 +116,15 @@ impl DiskPQueue {
     }
 
     fn run(&mut self, event_receiver: Receiver<PQueueEvent>) {
-        for event in event_receiver {
+        loop {
+            let event = match event_receiver.try_recv() {
+                Ok(event) => event,
+                Err(_) => {
+                    self.monitor.inc_pqueue_free();
+                    sleep(self.config.pqueue_sleep);
+                    continue;
+                },
+            };
             match event {
                 PQueueEvent::ReadResponse(id, page) => {
                     let Self { ref mut cache, ref mut thread_event_senders, ref config, .. } = *self;

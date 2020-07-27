@@ -15,6 +15,7 @@ pub struct Config {
     pub n_pqueue_threads: usize,
     pub pqueue_cache_cap: usize,
     pub scheduler_sleep: Duration,
+    pub pqueue_sleep: Duration,
     pub locality_clear_prob: f32,
     pub work_queue_cap: usize,
     pub min_run_len: usize,
@@ -45,6 +46,7 @@ impl Config {
                 // 1000
             },
             scheduler_sleep: Duration::from_millis(1),
+            pqueue_sleep: Duration::from_millis(1),
             locality_clear_prob: 0.01,
             work_queue_cap: 100,
             min_run_len: 32,

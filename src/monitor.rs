@@ -15,6 +15,7 @@ pub struct MonitorHandle {
     robots_hits: Arc<AtomicUsize>,
     empty_requests: Arc<AtomicUsize>,
     scheduler_free: Arc<AtomicUsize>,
+    pqueue_free: Arc<AtomicUsize>,
 }
 
 impl MonitorHandle {
@@ -36,6 +37,10 @@ impl MonitorHandle {
 
     pub fn inc_scheduler_free(&self) {
         self.scheduler_free.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn inc_pqueue_free(&self) {
+        self.pqueue_free.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn inc_completed_jobs(&self) {
@@ -76,6 +81,7 @@ impl Monitor {
             robots_hits: Arc::new(AtomicUsize::new(0)),
             empty_requests: Arc::new(AtomicUsize::new(0)),
             scheduler_free: Arc::new(AtomicUsize::new(0)),
+            pqueue_free: Arc::new(AtomicUsize::new(0)),
         };
         let monitor = Monitor {
             handle: handle.clone(),
@@ -94,6 +100,7 @@ impl Monitor {
         let mut old_total_priority = self.handle.total_priority.load(Ordering::Relaxed);
         let mut old_empty_requests = self.handle.empty_requests.load(Ordering::Relaxed);
         let mut old_scheduler_free = self.handle.scheduler_free.load(Ordering::Relaxed);
+        let mut old_pqueue_free = self.handle.pqueue_free.load(Ordering::Relaxed);
         println!("monitoring crawl rate");
         loop {
             thread::sleep(Duration::from_millis(1000));
@@ -106,14 +113,16 @@ impl Monitor {
             let new_total_priority = self.handle.total_priority.load(Ordering::Relaxed);
             let new_empty_requests = self.handle.empty_requests.load(Ordering::Relaxed);
             let new_scheduler_free = self.handle.scheduler_free.load(Ordering::Relaxed);
+            let new_pqueue_free = self.handle.pqueue_free.load(Ordering::Relaxed);
             println!(
-                "{} urls/s, {}% errs, {}% skipped, {}ms responses, {} empty, {} scheduler free, {} avg priority, {}% robot hits, crawled {}, seen {}",
+                "{} urls/s, {}% errs, {}% skipped, {}ms responses, {} empty, {} scheduler free, {} pqueue free, {} avg priority, {}% robot hits, crawled {}, seen {}",
                  new_successful - old_successful,
                  (new_failed - old_failed) as f32 / (new_completed - old_completed) as f32 * 100.0,
                  (new_skipped - old_skipped) as f32 / (new_completed - old_completed) as f32 * 100.0,
                  (new_time - old_time) as f32 / (new_successful - old_successful) as f32,
                  new_empty_requests - old_empty_requests,
                  new_scheduler_free - old_scheduler_free,
+                 new_pqueue_free - old_pqueue_free,
                  (new_total_priority - old_total_priority) as f32 / (new_completed - old_completed) as f32,
                  (new_robots_hits - old_robots_hits) as f32 / (new_completed - old_completed) as f32 * 100.0,
                  new_completed,
@@ -128,6 +137,7 @@ impl Monitor {
             old_total_priority = new_total_priority;
             old_empty_requests = new_empty_requests;
             old_scheduler_free = new_scheduler_free;
+            old_pqueue_free = new_pqueue_free;
         }
     }
 }
