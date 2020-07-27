@@ -13,3 +13,4 @@ pub mod pqueuethread;
 pub mod robots;
 pub mod scheduler;
 pub mod workchannel;
+pub mod indexshard;

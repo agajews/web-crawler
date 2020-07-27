@@ -2,8 +2,9 @@
 
 #[macro_use] extern crate rocket;
 
+use ::web_crawler::indexshard::IndexShard;
+
 use rocket::State;
-use web_index::IndexShard;
 use std::path::PathBuf;
 use std::env;
 use std::collections::BinaryHeap;
@@ -182,10 +183,11 @@ fn shard_thread(tid: usize, chunk: Vec<PathBuf>, ready_sender: Sender<()>, work_
     let mut shards = Vec::with_capacity(chunk.len());
     for (i, path) in chunk.into_iter().enumerate() {
         if i % 10 == 0 {
-            println!("opened shard {}:{}", core, idx);
+            println!("opened shard {:?}", path);
         }
-        if let Some(shard) = IndexShard::open(path) {
-            shards.push(shard);
+        match IndexShard::open(&path) {
+            Ok(shard) => shards.push(shard),
+            Err(err) => println!("failed to open shard {:?}: {:?}", path, err),
         }
     }
     ready_sender.send(()).unwrap();
@@ -204,7 +206,7 @@ fn spawn_threads(n_threads: usize) -> Vec<Sender<Job>> {
 
     let shard_paths = IndexShard::find_shards(&index_dir);
     println!("found {} shards", shard_paths.len());
-    let shards_per_thread = (idxs.len() + n_threads - 1) / n_threads;
+    let shards_per_thread = (shard_paths.len() + n_threads - 1) / n_threads;
     let chunks = shard_paths.chunks(shards_per_thread);
     let (ready_sender, ready_receiver) = channel();
     let mut work_senders = Vec::new();
