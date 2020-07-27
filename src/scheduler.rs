@@ -143,10 +143,11 @@ impl Scheduler {
                 .map(|tid| *tid)
                 .next()
                 .map(|tid| self.assign_job(tid, job)),
-            None => {
+            None if !self.work_senders.is_empty() => {
                 let tid = thread_rng().gen::<usize>() % self.work_senders.len();
                 Some(self.assign_job(tid, job))
             },
+            _ => None,
         }
     }
 }
