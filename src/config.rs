@@ -40,8 +40,8 @@ impl Config {
             scheduler_queue_cap: 100,
             n_pqueue_threads: if debug { 2 } else { 256 },
             pqueue_cache_cap: if debug { 20 } else {
-                // 12_500_000
-                1000
+                12_500_000
+                // 1000
             },
             scheduler_sleep: Duration::from_millis(1),
             locality_clear_prob: 0.01,
