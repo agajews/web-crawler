@@ -138,7 +138,7 @@ impl Crawler {
     }
 
     async fn do_job(&mut self, job: Job) -> Result<JobStatus, Box<dyn Error>> {
-        if thread_rng().gen::<f32>() < 0.02 {
+        if thread_rng().gen::<f32>() < 0.005 {
             println!("crawling {}", job.url);
         }
         let url = Url::parse(&job.url).unwrap();
