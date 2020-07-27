@@ -11,10 +11,7 @@ impl Marker {
     pub fn cmp_str(&self, other: &str) -> Ordering {
         match self {
             Marker::NegInf => Ordering::Less,
-            Marker::Finite(s) => {
-                let s: &str = s.as_ref();
-                s.cmp(other)
-            },
+            Marker::Finite(s) => s.as_str().cmp(other),
             Marker::PosInf => Ordering::Greater,
         }
     }
