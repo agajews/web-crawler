@@ -60,7 +60,7 @@ impl Config {
             ],
             user_agent: String::from("Rustbot/0.4"),
             n_threads: if debug { 1 } else { 50 },
-            n_pqueues: if debug { 2 } else { 8 },
+            n_pqueues: if debug { 2 } else { 16 },
         };
 
         Some(config)
