@@ -182,7 +182,13 @@ impl DiskPQueue {
 
     fn pop(&mut self) -> Option<()> {
         let Self { ref mut pqueue, ref mut cache, ref work_sender, ref mut read_map, ref thread_event_senders, ref monitor, .. } = *self;
-        let (&id, &priority) = pqueue.peek()?;
+        let (&id, &priority) = match pqueue.peek() {
+            Some(tup) => tup,
+            None => {
+                monitor.inc_missing_job();
+                return None;
+            },
+    };
         match Self::query_cache(cache, id) {
             Some(page) => {
                 match page.pop() {
@@ -203,7 +209,6 @@ impl DiskPQueue {
             },
             None => {
                 work_sender.send(None).unwrap();
-                monitor.inc_missing_job();
                 if !read_map.contains_key(&id) {
                     Self::request_page(thread_event_senders, id);
                     read_map.insert(id, Vec::new());
