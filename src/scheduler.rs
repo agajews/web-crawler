@@ -80,7 +80,7 @@ impl Scheduler {
                 if let None = self.try_assign(job.clone()) {
                     match self.empty_receiver.try_recv() {
                         Ok(tid) => {
-                            if self.work_senders[tid].len() == 0 {
+                            if self.work_senders[tid].len() < self.config.work_empty_threshold {
                                 self.assign_job(tid, job)
                             } else {
                                 self.stash_job(job);
