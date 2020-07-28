@@ -79,7 +79,13 @@ impl Scheduler {
             if let Some(job) = self.pop_job() {
                 if let None = self.try_assign(job.clone()) {
                     match self.empty_receiver.try_recv() {
-                        Ok(tid) => self.assign_job(tid, job),
+                        Ok(tid) => {
+                            if self.work_senders[tid].len() == 0 {
+                                self.assign_job(tid, job)
+                            } else {
+                                self.stash_job(job);
+                            }
+                        },
                         Err(_) => {
                             self.stash_job(job);
                             // self.monitor.inc_scheduler_free();
