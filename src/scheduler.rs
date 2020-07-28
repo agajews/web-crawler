@@ -77,10 +77,11 @@ impl Scheduler {
             }
 
             while let Ok(tid) = self.empty_receiver.try_recv() {
-                if let Some(job) = self.pop_job() {
-                    self.assign_job(tid, job);
-                } else {
-                    break;
+                loop {
+                    if let Some(job) = self.pop_job() {
+                        self.assign_job(tid, job);
+                        break;
+                    }
                 }
             }
 
