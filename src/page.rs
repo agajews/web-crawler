@@ -68,13 +68,13 @@ impl Page {
         self.entries.iter_mut()
             .filter(|(_, _, popped)| !popped)
             .max_by_key(|(_, count, _)| *count)
-            .map(|(url, _, popped)| {
+            .map(|(url, count, popped)| {
                 *popped = true;
-                url.clone()
+                (url.clone(), *count)
             })
-            .map(|url| {
+            .map(|(url, priority)| {
                 self.value = Self::compute_value(&self.entries);
-                Job::new(url)
+                Job::with_priority(url, priority)
             })
     }
 

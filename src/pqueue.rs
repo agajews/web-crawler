@@ -199,6 +199,7 @@ impl DiskPQueue {
             Some(page) => {
                 match page.pop() {
                     Some(job) => {
+                        assert_eq!(job.priority, priority);
                         monitor.inc_total_priority(priority);
                         // println!("popping job {}", job.url);
                         pqueue.change_priority(&id, page.value).unwrap();
