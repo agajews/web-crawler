@@ -85,6 +85,7 @@ impl Scheduler {
                     sleep(self.config.scheduler_sleep);
                 }
             } else {
+                self.monitor.inc_scheduler_free();
                 sleep(self.config.scheduler_sleep);
             }
         }
