@@ -61,7 +61,7 @@ impl Config {
                 "https://cam.ac.uk",
             ],
             user_agent: String::from("Rustbot/0.4"),
-            n_threads: if debug { 1 } else { 100 },
+            n_threads: if debug { 1 } else { 256 },
             n_pqueues: if debug { 2 } else { 16 },
         };
 
