@@ -26,9 +26,6 @@ impl DiskPQueueReceiver {
         let maybe_job = self.work_receiver.try_recv().ok();
         if maybe_job.is_some() {
             self.n_requests -= 1;
-            if maybe_job.as_ref().unwrap().is_none() {
-                self.monitor.inc_missing_job();
-            }
         }
         while self.n_requests < self.config.scheduler_queue_cap {
             self.event_sender.send(PQueueEvent::PopRequest).unwrap();
@@ -145,7 +142,11 @@ impl DiskPQueue {
                     self.increment(job);
                 },
                 PQueueEvent::PopRequest => {
-                    self.pop();
+                    let job = self.pop();
+                    if job.is_none() {
+                        self.monitor.inc_missing_job();
+                    }
+                    self.work_sender.send(job).unwrap();
                 },
             }
         }
@@ -185,15 +186,15 @@ impl DiskPQueue {
         }
     }
 
-    fn pop(&mut self) -> Option<()> {
-        let Self { ref mut pqueue, ref mut cache, ref work_sender, ref mut read_map, ref thread_event_senders, ref monitor, .. } = *self;
+    fn pop(&mut self) -> Option<Job> {
+        let Self { ref mut pqueue, ref mut cache, ref mut read_map, ref thread_event_senders, .. } = *self;
         let (&id, &priority) = match pqueue.peek() {
             Some(tup) => tup,
             None => {
                 // monitor.inc_missing_job();
                 return None;
             },
-    };
+        };
         match Self::query_cache(cache, id) {
             Some(page) => {
                 match page.pop() {
@@ -201,26 +202,24 @@ impl DiskPQueue {
                         self.monitor.inc_total_priority(priority);
                         // println!("popping job {}", job.url);
                         pqueue.change_priority(&id, page.value).unwrap();
-                        work_sender.send(Some(job)).unwrap();
+                        Some(job)
                     },
                     None => {
                         if priority > 0 {
                             panic!("failed to pop job with supposed priority {}", priority);
-                        } else {
-                            work_sender.send(None).unwrap();
                         }
+                        None
                     }
                 }
             },
             None => {
-                work_sender.send(None).unwrap();
                 if !read_map.contains_key(&id) {
                     Self::request_page(thread_event_senders, id);
                     read_map.insert(id, Vec::new());
                 }
+                None
             }
         }
-        Some(())
     }
 
     fn request_page(event_senders: &[Sender<DiskThreadEvent>], id: usize) {
