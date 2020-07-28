@@ -4,7 +4,7 @@ use std::cmp::Reverse;
 use std::hash::Hash;
 
 pub struct BTreeCache<K: Ord + Hash, V> {
-    cache: BTreeMap<K, V>,
+    pub cache: BTreeMap<K, V>,
     pqueue: PriorityQueue<K, Reverse<u64>>,
     ticker: u64,
 }

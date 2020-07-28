@@ -197,7 +197,7 @@ impl DiskPQueue {
         };
         match Self::query_cache(cache, id) {
             Some(page) => {
-                assert_eq!(page.recompute_value(), priority);
+                assert_eq!(page.value, priority);
                 match page.pop() {
                     Some(job) => {
                         assert_eq!(job.priority, priority);
@@ -210,6 +210,9 @@ impl DiskPQueue {
                         monitor.inc_missing_job();
                         if priority > 0 {
                             panic!("failed to pop job with supposed priority {}", priority);
+                        }
+                        for (_, page) in cache.cache.iter() {
+                            assert_eq!(page.value, 0);
                         }
                         None
                     }
