@@ -21,6 +21,7 @@ use http::{Uri, HeaderMap};
 use url::Url;
 use rand::Rng;
 use rand::thread_rng;
+use fasthash::metro::hash64;
 
 enum JobStatus {
     Success,
@@ -32,7 +33,7 @@ struct Crawler {
     index: Arc<Mutex<Index>>,
     robots: Arc<RobotsChecker>,
     scheduler: SchedulerHandle,
-    pqueue: DiskPQueueSender,
+    pqueues: Vec<DiskPQueueSender>,
     monitor: MonitorHandle,
     client: Client,
     link_re: Regex,
@@ -47,7 +48,7 @@ impl Crawler {
         index: Arc<Mutex<Index>>,
         robots: Arc<RobotsChecker>,
         scheduler: SchedulerHandle,
-        pqueue: DiskPQueueSender,
+        pqueues: Vec<DiskPQueueSender>,
         monitor: MonitorHandle,
     ) -> Crawler {
         let client = Client::new(config.user_agent.clone(), config.client_refresh_interval);
@@ -56,7 +57,7 @@ impl Crawler {
             index,
             robots,
             scheduler,
-            pqueue,
+            pqueues,
             monitor,
             client,
             link_re: Regex::new("href=['\"][^'\"]+['\"]").unwrap(),
@@ -186,7 +187,7 @@ impl Crawler {
             .collect::<Vec<_>>();
 
         for link in links {
-            self.pqueue.increment(Job::new(link));
+            inc_url(link, &self.pqueues);
         }
     }
 
@@ -216,7 +217,7 @@ fn core_thread(
     core_id: usize,
     config: Config,
     scheduler: SchedulerHandle,
-    pqueue: DiskPQueueSender,
+    pqueues: Vec<DiskPQueueSender>,
     monitor: MonitorHandle,
 ) {
     let index = Arc::new(Mutex::new(Index::new(core_id, config.clone())));
@@ -235,7 +236,7 @@ fn core_thread(
             index.clone(),
             robots.clone(),
             scheduler.clone(),
-            pqueue.clone(),
+            pqueues.clone(),
             monitor.clone(),
         );
         rt.spawn(async move { crawler.crawl().await });
@@ -245,30 +246,41 @@ fn core_thread(
         index,
         robots,
         scheduler,
-        pqueue,
+        pqueues,
         monitor,
     );
     rt.block_on(async move { crawler.crawl().await });
 }
 
+fn inc_url(url: String, pqueue_senders: &[DiskPQueueSender]) {
+    let pqueue_id = hash64(&url) as usize % pqueue_senders.len();
+    pqueue_senders[pqueue_id].increment(Job::new(url));
+}
+
 fn main() {
     let config = Config::load().unwrap();
     let monitor_handle = Monitor::spawn();
-    let (pqueue_sender, pqueue_receiver) = DiskPQueue::spawn(config.clone(), monitor_handle.clone());
-    for url in &config.root_set {
-        pqueue_sender.increment(Job::new(String::from(*url)));
+    let mut pqueue_senders = Vec::new();
+    let mut pqueue_receivers = Vec::new();
+    for pqueue_id in 0..config.n_pqueues {
+        let (pqueue_sender, pqueue_receiver) = DiskPQueue::spawn(pqueue_id, config.clone(), monitor_handle.clone());
+        pqueue_senders.push(pqueue_sender);
+        pqueue_receivers.push(pqueue_receiver);
     }
-    let (scheduler_thread, scheduler_handle) = Scheduler::spawn(pqueue_receiver, config.clone(), monitor_handle.clone());
+    for url in &config.root_set {
+        inc_url(String::from(*url), &pqueue_senders);
+    }
+    let (scheduler_thread, scheduler_handle) = Scheduler::spawn(pqueue_receivers, config.clone(), monitor_handle.clone());
 
     let core_ids = core_affinity::get_core_ids().unwrap();
     for core_id in core_ids {
         let config = config.clone();
         let scheduler_handle = scheduler_handle.clone();
-        let pqueue_sender = pqueue_sender.clone();
+        let pqueue_senders = pqueue_senders.clone();
         let monitor_handle = monitor_handle.clone();
         thread::spawn(move || {
             core_affinity::set_for_current(core_id);
-            core_thread(core_id.id, config, scheduler_handle, pqueue_sender, monitor_handle)
+            core_thread(core_id.id, config, scheduler_handle, pqueue_senders, monitor_handle)
         });
     }
 

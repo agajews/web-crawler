@@ -24,6 +24,7 @@ pub struct Config {
     pub root_set: Vec<&'static str>,
     pub user_agent: String,
     pub n_threads: usize,
+    pub n_pqueues: usize,
 }
 
 impl Config {
@@ -35,8 +36,7 @@ impl Config {
             index_path: top_dir.join("index"),
             index_cap: if debug { 100 } else { 100_000 },
             max_document_len: 256_000,
-            // page_capacity: 60,
-            page_capacity: 1000,
+            page_capacity: 60,
             max_url_len: 250,
             page_size_bytes: 4096 * 4,
             scheduler_queue_cap: 100,
@@ -60,6 +60,7 @@ impl Config {
             ],
             user_agent: String::from("Rustbot/0.4"),
             n_threads: if debug { 1 } else { 50 },
+            n_pqueues: if debug { 2 } else { 8 },
         };
 
         Some(config)

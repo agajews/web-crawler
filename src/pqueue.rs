@@ -61,13 +61,14 @@ enum PageEvent {
 }
 
 impl DiskPQueue {
-    pub fn spawn(config: Config, monitor: MonitorHandle) -> (DiskPQueueSender, DiskPQueueReceiver) {
+    pub fn spawn(id: usize, config: Config, monitor: MonitorHandle) -> (DiskPQueueSender, DiskPQueueReceiver) {
         let (work_sender, work_receiver) = channel();
         let (event_sender, event_receiver) = channel();
         let mut thread_event_senders = Vec::new();
         for tid in 0..config.n_pqueue_threads {
             let event_sender = event_sender.clone();
             let thread_event_sender = DiskPQueueThread::spawn(
+                id,
                 tid,
                 config.clone(),
                 event_sender,

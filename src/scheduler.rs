@@ -17,11 +17,12 @@ pub struct Scheduler {
     empty_receiver: Receiver<usize>,
     register_receiver: Receiver<(WorkSender<Job>, Sender<usize>)>,
     work_senders: Vec<WorkSender<Job>>,
-    pqueue: DiskPQueueReceiver,
+    pqueues: Vec<DiskPQueueReceiver>,
     config: Config,
     tid_localities: Vec<Vec<JobLocality>>,
     recent_domains: BTreeMap<JobLocality, Vec<usize>>,
     stashed_job: Option<Job>,
+    pqueue_id: usize,
 }
 
 #[derive(Clone)]
@@ -43,19 +44,20 @@ impl SchedulerHandle {
 }
 
 impl Scheduler {
-    pub fn spawn(pqueue: DiskPQueueReceiver, config: Config, monitor: MonitorHandle) -> (JoinHandle<()>, SchedulerHandle) {
+    pub fn spawn(pqueues: Vec<DiskPQueueReceiver>, config: Config, monitor: MonitorHandle) -> (JoinHandle<()>, SchedulerHandle) {
         let (empty_sender, empty_receiver) = channel();
         let (register_sender, register_receiver) = channel();
         let mut scheduler = Scheduler {
             monitor,
             empty_receiver,
             register_receiver,
-            pqueue,
+            pqueues,
             config,
             work_senders: Vec::new(),
             tid_localities: Vec::new(),
             recent_domains: BTreeMap::new(),
             stashed_job: None,
+            pqueue_id: 0,
         };
         let handle = SchedulerHandle {
             empty_sender,
@@ -126,9 +128,13 @@ impl Scheduler {
     }
 
     fn pop_job(&mut self) -> Option<Job> {
-        let Self { ref mut stashed_job, ref mut pqueue, .. } = *self;
+        let Self { ref mut stashed_job, ref mut pqueues, ref mut pqueue_id, .. } = *self;
         stashed_job.take()
-            .or_else(|| pqueue.pop())
+            .or_else(|| {
+                let res = (&mut pqueues[*pqueue_id]).pop();
+                *pqueue_id = (*pqueue_id + 1) % pqueues.len();
+                res
+             })
     }
 
     fn stash_job(&mut self, job: Job) {

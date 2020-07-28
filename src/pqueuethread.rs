@@ -23,10 +23,12 @@ pub struct DiskPQueueThread {
 }
 
 impl DiskPQueueThread {
-    pub fn spawn(tid: usize, config: Config, pqueue_sender: Sender<PQueueEvent>) -> Sender<DiskThreadEvent> {
+    pub fn spawn(pqueue_id: usize, tid: usize, config: Config, pqueue_sender: Sender<PQueueEvent>) -> Sender<DiskThreadEvent> {
         let (event_sender, event_receiver) = channel();
-        fs::create_dir_all(&config.pqueue_path).unwrap();
-        let path = config.pqueue_path.join(format!("shard{}", tid));
+        let dir = config.pqueue_path
+            .join(format!("pqueue{}", pqueue_id));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(format!("shard{}", tid));
         let file = fs::OpenOptions::new()
             .create(true)
             .read(true)
