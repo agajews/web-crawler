@@ -39,7 +39,7 @@ impl Config {
             page_capacity: 60,
             max_url_len: 250,
             page_size_bytes: 4096 * 4,
-            scheduler_queue_cap: 10,
+            scheduler_queue_cap: 500,
             n_pqueue_threads: if debug { 2 } else { 32 },
             pqueue_cache_cap: if debug { 20 } else {
                 12_500_000
@@ -47,7 +47,7 @@ impl Config {
             },
             scheduler_sleep: Duration::from_millis(1),
             pqueue_sleep: Duration::from_millis(1),
-            locality_clear_prob: 0.01,
+            locality_clear_prob: 0.00,
             work_queue_cap: 100,
             min_run_len: 32,
             client_refresh_interval: 100,
