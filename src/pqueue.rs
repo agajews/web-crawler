@@ -26,6 +26,9 @@ impl DiskPQueueReceiver {
         let maybe_job = self.work_receiver.try_recv().ok();
         if maybe_job.is_some() {
             self.n_requests -= 1;
+            if let None = maybe_job.as_ref().unwrap() {
+                self.monitor.inc_missing_job();
+            }
         }
         while self.n_requests < self.config.scheduler_queue_cap {
             self.event_sender.send(PQueueEvent::PopRequest).unwrap();
@@ -143,9 +146,9 @@ impl DiskPQueue {
                 },
                 PQueueEvent::PopRequest => {
                     let job = self.pop();
-                    if job.is_none() {
-                        self.monitor.inc_missing_job();
-                    }
+                    // if job.is_none() {
+                    //     self.monitor.inc_missing_job();
+                    // }
                     self.work_sender.send(job).unwrap();
                 },
             }
