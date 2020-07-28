@@ -47,7 +47,7 @@ impl Config {
             },
             scheduler_sleep: Duration::from_millis(1),
             pqueue_sleep: Duration::from_millis(1),
-            locality_clear_prob: 0.00,
+            locality_clear_prob: 0.01,
             work_queue_cap: 100,
             min_run_len: 32,
             client_refresh_interval: 100,
