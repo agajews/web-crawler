@@ -196,7 +196,6 @@ impl DiskPQueue {
                         if priority > 0 {
                             panic!("failed to pop job with supposed priority {}", priority);
                         } else {
-                            monitor.inc_missing_job();
                             work_sender.send(None).unwrap();
                         }
                     }
@@ -204,6 +203,7 @@ impl DiskPQueue {
             },
             None => {
                 work_sender.send(None).unwrap();
+                monitor.inc_missing_job();
                 if !read_map.contains_key(&id) {
                     Self::request_page(thread_event_senders, id);
                     read_map.insert(id, Vec::new());
