@@ -114,6 +114,7 @@ impl Monitor {
         let mut old_scheduler_free = self.handle.scheduler_free.load(Ordering::Relaxed);
         let mut old_pqueue_free = self.handle.pqueue_free.load(Ordering::Relaxed);
         let mut old_missing_job = self.handle.missing_job.load(Ordering::Relaxed);
+        let mut old_popped_urls = self.handle.popped_urls.load(Ordering::Relaxed);
         println!("monitoring crawl rate");
         loop {
             thread::sleep(Duration::from_millis(1000));
@@ -128,6 +129,7 @@ impl Monitor {
             let new_scheduler_free = self.handle.scheduler_free.load(Ordering::Relaxed);
             let new_pqueue_free = self.handle.pqueue_free.load(Ordering::Relaxed);
             let new_missing_job = self.handle.missing_job.load(Ordering::Relaxed);
+            let new_popped_urls = self.handle.popped_urls.load(Ordering::Relaxed);
             println!(
                 "{} urls/s, {}% errs, {}% skipped, {}ms responses, {} empty, {} scheduler free, {} pqueue free, {} missing, {} avg priority, {}% robot hits, crawled {}, popped: {}, seen {}",
                  new_successful - old_successful,
@@ -141,7 +143,7 @@ impl Monitor {
                  (new_total_priority - old_total_priority) as f32 / (new_completed - old_completed) as f32,
                  (new_robots_hits - old_robots_hits) as f32 / (new_completed - old_completed) as f32 * 100.0,
                  new_completed,
-                 self.handle.popped_urls.load(Ordering::Relaxed),
+                 new_popped_urls - old_popped_urls,
                  self.handle.seen_urls.load(Ordering::Relaxed),
             );
             old_time = new_time;
@@ -155,6 +157,7 @@ impl Monitor {
             old_scheduler_free = new_scheduler_free;
             old_pqueue_free = new_pqueue_free;
             old_missing_job = new_missing_job;
+            old_popped_urls = new_popped_urls;
         }
     }
 }
