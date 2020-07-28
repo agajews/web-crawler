@@ -207,7 +207,7 @@ impl DiskPQueue {
                         Some(job)
                     },
                     None => {
-                        monitor.inc_missing_job();
+                        // monitor.inc_missing_job();
                         if priority > 0 {
                             panic!("failed to pop job with supposed priority {}", priority);
                         }

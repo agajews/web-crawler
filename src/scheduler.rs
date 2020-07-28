@@ -95,6 +95,7 @@ impl Scheduler {
                 }
             } else {
                 self.monitor.inc_scheduler_free();
+                self.monitor.inc_missing_job();
                 sleep(self.config.scheduler_sleep);
             }
         }
