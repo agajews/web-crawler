@@ -86,6 +86,10 @@ impl Page {
             .unwrap_or(0)
     }
 
+    pub fn recompute_value(&self) -> u32 {
+        Self::compute_value(&self.entries)
+    }
+
     pub fn serialize(self, config: &Config) -> Vec<u8> {
         // let mut bytes = Vec::with_capacity(4 + (2 + config.max_url_len) * 2 + (1 + 4 + 1 + config.max_url_len) * self.entries.len());
         let mut bytes = Vec::with_capacity(config.page_size_bytes);

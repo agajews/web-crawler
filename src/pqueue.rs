@@ -197,7 +197,7 @@ impl DiskPQueue {
         };
         match Self::query_cache(cache, id) {
             Some(page) => {
-                assert_eq!(page.value, priority);
+                assert_eq!(page.recompute_value(), priority);
                 match page.pop() {
                     Some(job) => {
                         assert_eq!(job.priority, priority);
