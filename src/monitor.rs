@@ -17,6 +17,7 @@ pub struct MonitorHandle {
     scheduler_free: Arc<AtomicUsize>,
     pqueue_free: Arc<AtomicUsize>,
     missing_job: Arc<AtomicUsize>,
+    popped_urls: Arc<AtomicUsize>,
 }
 
 impl MonitorHandle {
@@ -56,6 +57,10 @@ impl MonitorHandle {
         self.seen_urls.fetch_add(1, Ordering::Relaxed);
     }
 
+    pub fn inc_popped_urls(&self) {
+        self.popped_urls.fetch_add(1, Ordering::Relaxed);
+    }
+
     pub fn inc_response_time(&self, millis: u128) {
         self.response_time.fetch_add(millis as usize, Ordering::Relaxed);
     }
@@ -88,6 +93,7 @@ impl Monitor {
             scheduler_free: Arc::new(AtomicUsize::new(0)),
             pqueue_free: Arc::new(AtomicUsize::new(0)),
             missing_job: Arc::new(AtomicUsize::new(0)),
+            popped_urls: Arc::new(AtomicUsize::new(0)),
         };
         let monitor = Monitor {
             handle: handle.clone(),
@@ -123,7 +129,7 @@ impl Monitor {
             let new_pqueue_free = self.handle.pqueue_free.load(Ordering::Relaxed);
             let new_missing_job = self.handle.missing_job.load(Ordering::Relaxed);
             println!(
-                "{} urls/s, {}% errs, {}% skipped, {}ms responses, {} empty, {} scheduler free, {} pqueue free, {} missing, {} avg priority, {}% robot hits, crawled {}, seen {}",
+                "{} urls/s, {}% errs, {}% skipped, {}ms responses, {} empty, {} scheduler free, {} pqueue free, {} missing, {} avg priority, {}% robot hits, crawled {}, popped: {}, seen {}",
                  new_successful - old_successful,
                  (new_failed - old_failed) as f32 / (new_completed - old_completed) as f32 * 100.0,
                  (new_skipped - old_skipped) as f32 / (new_completed - old_completed) as f32 * 100.0,
@@ -135,6 +141,7 @@ impl Monitor {
                  (new_total_priority - old_total_priority) as f32 / (new_completed - old_completed) as f32,
                  (new_robots_hits - old_robots_hits) as f32 / (new_completed - old_completed) as f32 * 100.0,
                  new_completed,
+                 self.handle.popped_urls.load(Ordering::Relaxed),
                  self.handle.seen_urls.load(Ordering::Relaxed),
             );
             old_time = new_time;

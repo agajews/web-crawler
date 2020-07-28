@@ -64,7 +64,8 @@ impl Page {
         }
     }
 
-    pub fn pop(&mut self) -> Option<Job> {
+    pub fn pop(&mut self, monitor: &MonitorHandle) -> Option<Job> {
+        monitor.inc_popped_urls();
         self.entries.iter_mut()
             .filter(|(_, _, popped)| !popped)
             .max_by_key(|(_, count, _)| *count)
