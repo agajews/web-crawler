@@ -190,7 +190,7 @@ impl DiskPQueue {
         let (&id, &priority) = match pqueue.peek() {
             Some(tup) => tup,
             None => {
-                monitor.inc_missing_job();
+                // monitor.inc_missing_job();
                 return None;
             },
     };
