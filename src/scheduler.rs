@@ -158,10 +158,10 @@ impl Scheduler {
                 .filter(|tid| self.work_senders[*tid].len() < self.config.work_queue_cap)
                 .next()
                 .map(|tid| self.assign_job(tid, job)),
-            None if !self.work_senders.is_empty() => {
-                let tid = thread_rng().gen::<usize>() % self.work_senders.len();
-                Some(self.assign_job(tid, job))
-            },
+            // None if !self.work_senders.is_empty() => {
+            //     let tid = thread_rng().gen::<usize>() % self.work_senders.len();
+            //     Some(self.assign_job(tid, job))
+            // },
             _ => None,
         }
     }
