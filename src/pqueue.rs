@@ -211,9 +211,6 @@ impl DiskPQueue {
                         if priority > 0 {
                             panic!("failed to pop job with supposed priority {}", priority);
                         }
-                        for (_, page) in cache.cache.iter() {
-                            assert_eq!(page.value, 0);
-                        }
                         None
                     }
                 }
