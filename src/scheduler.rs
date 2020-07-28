@@ -82,8 +82,8 @@ impl Scheduler {
                         Ok(tid) => self.assign_job(tid, job),
                         Err(_) => {
                             self.stash_job(job);
-                            self.monitor.inc_scheduler_free();
-                            sleep(self.config.scheduler_sleep);
+                            // self.monitor.inc_scheduler_free();
+                            // sleep(self.config.scheduler_sleep);
                         }
                     }
                 }
