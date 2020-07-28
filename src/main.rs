@@ -75,7 +75,6 @@ impl Crawler {
             let maybe_job = work_receiver.try_recv();
             if work_receiver.len() < self.config.work_empty_threshold {
                 self.scheduler.mark_empty(tid);
-                self.monitor.inc_empty();
             }
             match maybe_job {
                 Some(job) => {
@@ -92,6 +91,7 @@ impl Crawler {
                     self.monitor.inc_completed_jobs();
                 },
                 None => {
+                    self.monitor.inc_empty();
                     delay_for(self.config.crawler_empty_delay).await;
                 },
             }
