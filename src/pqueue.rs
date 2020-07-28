@@ -26,9 +26,6 @@ impl DiskPQueueReceiver {
         let maybe_job = self.work_receiver.try_recv().ok();
         if maybe_job.is_some() {
             self.n_requests -= 1;
-            // if let None = maybe_job.as_ref().unwrap() {
-            //     self.monitor.inc_missing_job();
-            // }
         }
         while self.n_requests < self.config.scheduler_queue_cap {
             self.event_sender.send(PQueueEvent::PopRequest).unwrap();
@@ -146,9 +143,9 @@ impl DiskPQueue {
                 },
                 PQueueEvent::PopRequest => {
                     let job = self.pop();
-                    if job.is_none() {
-                        self.monitor.inc_missing_job();
-                    }
+                    // if job.is_none() {
+                    //     self.monitor.inc_missing_job();
+                    // }
                     self.work_sender.send(job).unwrap();
                 },
             }
@@ -190,7 +187,7 @@ impl DiskPQueue {
     }
 
     fn pop(&mut self) -> Option<Job> {
-        let Self { ref mut pqueue, ref mut cache, ref mut read_map, ref thread_event_senders, .. } = *self;
+        let Self { ref mut pqueue, ref mut cache, ref mut read_map, ref thread_event_senders, ref monitor, .. } = *self;
         let (&id, &priority) = match pqueue.peek() {
             Some(tup) => tup,
             None => {
@@ -202,12 +199,13 @@ impl DiskPQueue {
             Some(page) => {
                 match page.pop() {
                     Some(job) => {
-                        self.monitor.inc_total_priority(priority);
+                        monitor.inc_total_priority(priority);
                         // println!("popping job {}", job.url);
                         pqueue.change_priority(&id, page.value).unwrap();
                         Some(job)
                     },
                     None => {
+                        monitor.inc_missing_job();
                         if priority > 0 {
                             panic!("failed to pop job with supposed priority {}", priority);
                         }
