@@ -69,16 +69,18 @@ impl Scheduler {
 
     fn run(&mut self) {
         loop {
-            if let Ok((work_sender, tid_sender)) = self.register_receiver.try_recv() {
+            while let Ok((work_sender, tid_sender)) = self.register_receiver.try_recv() {
                 let tid = self.work_senders.len();
                 self.work_senders.push(work_sender);
                 self.tid_localities.push(Vec::new());
                 tid_sender.send(tid).unwrap();
             }
 
-            if let Ok(tid) = self.empty_receiver.try_recv() {
+            while let Ok(tid) = self.empty_receiver.try_recv() {
                 if let Some(job) = self.pop_job() {
                     self.assign_job(tid, job);
+                } else {
+                    break;
                 }
             }
 
