@@ -153,7 +153,7 @@ impl DiskPQueue {
         match Self::query_cache(cache, id) {
             Some(page) => {
                 let res = page.increment(job, monitor);
-                pqueue.change_priority(&id, page.value);
+                pqueue.change_priority(&id, page.value).unwrap();
                 // println!("page {} has priority {}", id, page.value);
                 if let Some(new_page) = res {
                     // println!("splitting off into a new page");
@@ -189,7 +189,7 @@ impl DiskPQueue {
                     Some(job) => {
                         self.monitor.inc_total_priority(priority);
                         // println!("popping job {}", job.url);
-                        pqueue.change_priority(&id, page.value);
+                        pqueue.change_priority(&id, page.value).unwrap();
                         work_sender.send(Some(job)).unwrap();
                     },
                     None => {
