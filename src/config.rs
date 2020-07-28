@@ -41,8 +41,8 @@ impl Config {
             max_url_len: 250,
             page_size_bytes: 4096 * 4,
             scheduler_queue_cap: 100,
-            work_queue_cap: 10,
-            work_empty_threshold: 3,
+            work_queue_cap: 100,
+            work_empty_threshold: 10,
             n_pqueue_threads: if debug { 2 } else { 32 },
             pqueue_cache_cap: if debug { 20 } else {
                 12_500_000
