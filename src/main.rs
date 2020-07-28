@@ -40,6 +40,7 @@ struct Crawler {
     body_re: Regex,
     tag_text_re: Regex,
     term_re: Regex,
+    academic_re: Regex,
 }
 
 impl Crawler {
@@ -64,6 +65,7 @@ impl Crawler {
             body_re: Regex::new(r"(?s)<body[^<>]*>.*(</body>|<script>)?").unwrap(),
             tag_text_re: Regex::new(r">([^<>]+)").unwrap(),
             term_re: Regex::new(r"[a-zA-Z]+").unwrap(),
+            academic_re: Regex::new(r"^.+\.(edu|ac\.??)$").unwrap(),
         }
     }
 
@@ -140,6 +142,12 @@ impl Crawler {
             !url.starts_with("http")
     }
 
+    fn is_academic(&self, url: &Url) -> bool {
+        url.domain()
+            .map(|domain| self.academic_re.is_match(domain))
+            .unwrap_or(false)
+    }
+
     async fn do_job(&mut self, job: Job) -> Result<JobStatus, Box<dyn Error>> {
         if thread_rng().gen::<f32>() < 0.005 {
             println!("crawling {}", job.url);
@@ -178,6 +186,7 @@ impl Crawler {
             .map(|s| &s[6..s.len() - 1])
             .filter_map(|href| base_url.join(href).ok())
             .filter(|url| url.host_str().is_some())
+            .filter(|url| self.is_academic(url))
             .map(|mut url| {
                 url.set_fragment(None);
                 url.set_query(None);

@@ -18,7 +18,6 @@ pub struct DiskPQueueReceiver {
     work_receiver: Receiver<Option<Job>>,
     event_sender: Sender<PQueueEvent>,
     n_requests: usize,
-    monitor: MonitorHandle,
 }
 
 impl DiskPQueueReceiver {
@@ -101,7 +100,6 @@ impl DiskPQueue {
             work_receiver,
             event_sender,
             n_requests: 0,
-            monitor,
         };
         (sender, receiver)
     }
