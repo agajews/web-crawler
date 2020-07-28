@@ -76,21 +76,16 @@ impl Scheduler {
                 tid_sender.send(tid).unwrap();
             }
 
-            while let Ok(tid) = self.empty_receiver.try_recv() {
-                loop {
-                    if let Some(job) = self.pop_job() {
-                        self.assign_job(tid, job);
-                        break;
-                    }
-                }
-            }
-
             if let Some(job) = self.pop_job() {
-                if let None = self.try_assign(job.clone()) {
+                if let Ok(tid) = self.empty_receiver.try_recv() {
+                    self.assign_job(tid, job);
+                } else if let None = self.try_assign(job.clone()) {
                     self.stash_job(job);
                     self.monitor.inc_scheduler_free();
                     sleep(self.config.scheduler_sleep);
                 }
+            } else {
+                sleep(self.config.scheduler_sleep);
             }
         }
     }
