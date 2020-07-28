@@ -21,10 +21,13 @@ pub struct DiskPQueueReceiver {
 }
 
 impl DiskPQueueReceiver {
-    pub fn pop(&mut self) -> Option<Job> {
+    pub fn pop(&mut self, monitor: &MonitorHandle) -> Option<Job> {
         let maybe_job = self.work_receiver.try_recv().ok();
-        if maybe_job.is_some() {
+        if let Some(job_ref) = maybe_job.as_ref() {
             self.n_requests -= 1;
+            if job_ref.is_none() {
+                monitor.inc_missing_job();
+            }
         }
         while self.n_requests < self.config.scheduler_queue_cap {
             self.event_sender.send(PQueueEvent::PopRequest).unwrap();

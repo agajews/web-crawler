@@ -133,10 +133,7 @@ impl Scheduler {
         let Self { ref mut stashed_job, ref mut pqueues, ref mut pqueue_id, ref monitor, .. } = *self;
         stashed_job.take()
             .or_else(|| {
-                let res = (&mut pqueues[*pqueue_id]).pop();
-                if res.is_none() {
-                    monitor.inc_missing_job();
-                }
+                let res = (&mut pqueues[*pqueue_id]).pop(monitor);
                 *pqueue_id = (*pqueue_id + 1) % pqueues.len();
                 res
              })
