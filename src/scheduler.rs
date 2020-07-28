@@ -130,10 +130,10 @@ impl Scheduler {
     }
 
     fn pop_job(&mut self) -> Option<Job> {
-        let Self { ref mut stashed_job, ref mut pqueues, ref mut pqueue_id, ref monitor, .. } = *self;
+        let Self { ref mut stashed_job, ref mut pqueues, ref mut pqueue_id, .. } = *self;
         stashed_job.take()
             .or_else(|| {
-                let res = (&mut pqueues[*pqueue_id]).pop(monitor);
+                let res = (&mut pqueues[*pqueue_id]).pop();
                 *pqueue_id = (*pqueue_id + 1) % pqueues.len();
                 res
              })

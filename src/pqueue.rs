@@ -21,13 +21,10 @@ pub struct DiskPQueueReceiver {
 }
 
 impl DiskPQueueReceiver {
-    pub fn pop(&mut self, monitor: &MonitorHandle) -> Option<Job> {
+    pub fn pop(&mut self) -> Option<Job> {
         let maybe_job = self.work_receiver.try_recv().ok();
-        if let Some(job_ref) = maybe_job.as_ref() {
+        if maybe_job.is_some() {
             self.n_requests -= 1;
-            if job_ref.is_none() {
-                monitor.inc_missing_job();
-            }
         }
         while self.n_requests < self.config.scheduler_queue_cap {
             self.event_sender.send(PQueueEvent::PopRequest).unwrap();
@@ -184,7 +181,7 @@ impl DiskPQueue {
     }
 
     fn pop(&mut self) -> Option<()> {
-        let Self { ref mut pqueue, ref mut cache, ref work_sender, ref mut read_map, ref thread_event_senders, .. } = *self;
+        let Self { ref mut pqueue, ref mut cache, ref work_sender, ref mut read_map, ref thread_event_senders, ref monitor, .. } = *self;
         let (&id, &priority) = pqueue.peek()?;
         match Self::query_cache(cache, id) {
             Some(page) => {
@@ -199,6 +196,7 @@ impl DiskPQueue {
                         if priority > 0 {
                             panic!("failed to pop job with supposed priority {}", priority);
                         } else {
+                            monitor.inc_missing_job();
                             work_sender.send(None).unwrap();
                         }
                     }
