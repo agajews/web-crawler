@@ -18,6 +18,7 @@ pub struct DiskPQueueReceiver {
     work_receiver: Receiver<Option<Job>>,
     event_sender: Sender<PQueueEvent>,
     n_requests: usize,
+    monitor: MonitorHandle,
 }
 
 impl DiskPQueueReceiver {
@@ -25,6 +26,9 @@ impl DiskPQueueReceiver {
         let maybe_job = self.work_receiver.try_recv().ok();
         if maybe_job.is_some() {
             self.n_requests -= 1;
+            if maybe_job.as_ref().unwrap().is_none() {
+                self.monitor.inc_missing_job();
+            }
         }
         while self.n_requests < self.config.scheduler_queue_cap {
             self.event_sender.send(PQueueEvent::PopRequest).unwrap();
@@ -82,10 +86,10 @@ impl DiskPQueue {
         let mut pqueue = PriorityQueue::new();
         pqueue.push(0, 0);
         let mut pqueue = DiskPQueue {
-            monitor,
             work_sender,
             thread_event_senders,
             cache,
+            monitor: monitor.clone(),
             config: config.clone(),
             page_table: page_table,
             pqueue: pqueue,
@@ -100,6 +104,7 @@ impl DiskPQueue {
             work_receiver,
             event_sender,
             n_requests: 0,
+            monitor,
         };
         (sender, receiver)
     }
