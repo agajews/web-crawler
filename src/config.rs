@@ -50,7 +50,7 @@ impl Config {
             },
             scheduler_sleep: Duration::from_millis(1),
             pqueue_sleep: Duration::from_millis(1),
-            locality_clear_prob: 0.001,
+            locality_clear_prob: 0.05,
             min_run_len: 32,
             client_refresh_interval: 100,
             crawler_empty_delay: Duration::from_millis(1000),
