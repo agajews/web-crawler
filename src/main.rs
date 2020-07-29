@@ -204,7 +204,11 @@ impl Crawler {
             .filter_map(|href| base_url.join(href).ok())
             .filter(|url| url.host_str().is_some())
             .filter(|url| self.is_academic(url))
-            .filter(|url| !Self::looks_like_a_trap(url))
+            .collect::<Vec<_>>();
+        if links.iter().any(Self::looks_like_a_trap) {
+            return;
+        }
+        let links = links.into_iter()
             .map(|mut url| {
                 url.set_fragment(None);
                 url.set_query(None);
