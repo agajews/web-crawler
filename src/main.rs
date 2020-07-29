@@ -215,6 +215,10 @@ impl Crawler {
     }
 
     fn add_links(&self, base_url: &Url, document: &str) {
+        if base_url.domain().is_none() {
+            println!("warning url has no domain: {}", base_url.as_str());
+            return;
+        }
         let base_root = Self::domain_root(base_url.domain().unwrap());
         let links = self.link_re.find_iter(document)
             .map(|m| m.as_str())
