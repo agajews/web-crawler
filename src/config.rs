@@ -52,7 +52,7 @@ impl Config {
             pqueue_sleep: Duration::from_millis(1),
             locality_clear_prob: 0.001,
             min_run_len: 32,
-            client_refresh_interval: 100,
+            client_refresh_interval: 1000,
             crawler_empty_delay: Duration::from_millis(1000),
             root_set: vec![
                 "https://columbia.edu",
