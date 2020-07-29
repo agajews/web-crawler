@@ -28,6 +28,7 @@ impl RobotsChecker {
     pub async fn allowed(&self, url: &Url, client: &mut Client) -> bool {
         let host = url.host_str().unwrap();
         let mut cache = self.cache.lock().await;
+        self.monitor.inc_robots_queries();
         let prefixes = match cache.get(host) {
             Some(prefixes) => {
                 self.monitor.inc_robots_hits();

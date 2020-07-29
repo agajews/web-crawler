@@ -13,6 +13,7 @@ pub struct MonitorHandle {
     seen_urls: Arc<AtomicUsize>,
     response_time: Arc<AtomicUsize>,
     robots_hits: Arc<AtomicUsize>,
+    robots_queries: Arc<AtomicUsize>,
     empty_requests: Arc<AtomicUsize>,
     scheduler_free: Arc<AtomicUsize>,
     pqueue_free: Arc<AtomicUsize>,
@@ -69,6 +70,10 @@ impl MonitorHandle {
         self.robots_hits.fetch_add(1, Ordering::Relaxed);
     }
 
+    pub fn inc_robots_queries(&self) {
+        self.robots_queries.fetch_add(1, Ordering::Relaxed);
+    }
+
     pub fn inc_total_priority(&self, priority: u32) {
         self.total_priority.fetch_add(priority as usize, Ordering::Relaxed);
     }
@@ -89,6 +94,7 @@ impl Monitor {
             seen_urls: Arc::new(AtomicUsize::new(0)),
             response_time: Arc::new(AtomicUsize::new(0)),
             robots_hits: Arc::new(AtomicUsize::new(0)),
+            robots_queries: Arc::new(AtomicUsize::new(0)),
             empty_requests: Arc::new(AtomicUsize::new(0)),
             scheduler_free: Arc::new(AtomicUsize::new(0)),
             pqueue_free: Arc::new(AtomicUsize::new(0)),
@@ -109,6 +115,7 @@ impl Monitor {
         let mut old_completed = self.handle.completed_jobs.load(Ordering::Relaxed);
         let mut old_failed = self.handle.failed_jobs.load(Ordering::Relaxed);
         let mut old_robots_hits = self.handle.robots_hits.load(Ordering::Relaxed);
+        let mut old_robots_queries = self.handle.robots_queries.load(Ordering::Relaxed);
         let mut old_total_priority = self.handle.total_priority.load(Ordering::Relaxed);
         let mut old_empty_requests = self.handle.empty_requests.load(Ordering::Relaxed);
         let mut old_scheduler_free = self.handle.scheduler_free.load(Ordering::Relaxed);
@@ -124,6 +131,7 @@ impl Monitor {
             let new_completed = self.handle.completed_jobs.load(Ordering::Relaxed);
             let new_failed = self.handle.failed_jobs.load(Ordering::Relaxed);
             let new_robots_hits = self.handle.robots_hits.load(Ordering::Relaxed);
+            let new_robots_queries = self.handle.robots_queries.load(Ordering::Relaxed);
             let new_total_priority = self.handle.total_priority.load(Ordering::Relaxed);
             let new_empty_requests = self.handle.empty_requests.load(Ordering::Relaxed);
             let new_scheduler_free = self.handle.scheduler_free.load(Ordering::Relaxed);
@@ -141,7 +149,7 @@ impl Monitor {
                  new_pqueue_free - old_pqueue_free,
                  new_missing_job - old_missing_job,
                  (new_total_priority - old_total_priority) as f32 / (new_completed - old_completed) as f32,
-                 (new_robots_hits - old_robots_hits) as f32 / (new_completed - old_completed) as f32 * 100.0,
+                 (new_robots_hits - old_robots_hits) as f32 / (new_robots_queries - old_robots_queries) as f32 * 100.0,
                  new_completed,
                  new_popped_urls - old_popped_urls,
                  self.handle.seen_urls.load(Ordering::Relaxed),
@@ -152,6 +160,7 @@ impl Monitor {
             old_completed = new_completed;
             old_failed = new_failed;
             old_robots_hits = new_robots_hits;
+            old_robots_queries = new_robots_queries;
             old_total_priority = new_total_priority;
             old_empty_requests = new_empty_requests;
             old_scheduler_free = new_scheduler_free;
