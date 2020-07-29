@@ -206,13 +206,24 @@ impl Crawler {
         Ok(JobStatus::Success)
     }
 
+    fn domain_root(domain: &str) -> String {
+        let subdomains = domain.split('.').collect::<Vec<_>>();
+        subdomains[(subdomains.len() - 2)..].join(".")
+    }
+
     fn add_links(&self, base_url: &Url, document: &str) {
+        let base_root = Self::domain_root(base_url.domain().unwrap());
         let links = self.link_re.find_iter(document)
             .map(|m| m.as_str())
             .map(|s| &s[6..s.len() - 1])
             .filter_map(|href| base_url.join(href).ok())
-            .filter(|url| url.host_str().is_some())
-            .filter(|url| url.host_str().unwrap() != base_url.host_str().unwrap())
+            .filter(|url| {
+                let domain = match url.domain() {
+                    Some(domain) => domain,
+                    None => return false,
+                };
+                Self::domain_root(domain) != base_root
+            })
             .filter(|url| self.is_academic(url))
             .collect::<Vec<_>>();
         if links.iter().any(Self::looks_like_a_trap) {
