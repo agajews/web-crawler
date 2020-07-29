@@ -57,11 +57,13 @@ domain-needed
 bogus-priv
 EOF
 
-sudo echo "nameserver 169.254.169.254" > /etc/resolv.dnsmasq
+sudo su -c 'echo "nameserver 169.254.169.254" >> /etc/resolv.conf'
 sudo systemctl restart dnsmasq.service
 sudo systemctl enable  dnsmasq.service
 
-dig aws.amazon.com @127.0.0.1 && sudo su -c 'echo "supersede domain-name-servers 127.0.0.1;" >> /etc/dhcp/dhclient.conf' && sudo dhclient
+dig aws.amazon.com
+
+# dig aws.amazon.com @127.0.0.1 && sudo su -c 'echo "supersede domain-name-servers 127.0.0.1;" >> /etc/dhcp/dhclient.conf' && sudo dhclient
 
 wget https://docs.cloud.oracle.com/en-us/iaas/Content/Resources/Assets/secondary_vnic_all_configure.sh
 chmod +x secondary_vnic_all_configure.sh
