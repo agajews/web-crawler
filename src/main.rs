@@ -224,7 +224,7 @@ impl Crawler {
                 };
                 Self::domain_root(domain) != base_root
             })
-            .filter(|url| self.is_academic(url))
+            // .filter(|url| self.is_academic(url))
             .collect::<Vec<_>>();
         if links.iter().any(Self::looks_like_a_trap) {
             return;
