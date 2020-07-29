@@ -212,6 +212,7 @@ impl Crawler {
             .map(|s| &s[6..s.len() - 1])
             .filter_map(|href| base_url.join(href).ok())
             .filter(|url| url.host_str().is_some())
+            .filter(|url| url.host_str().unwrap() != base_url.host_str().unwrap())
             .filter(|url| self.is_academic(url))
             .collect::<Vec<_>>();
         if links.iter().any(Self::looks_like_a_trap) {
