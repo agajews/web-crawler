@@ -40,7 +40,7 @@ impl Config {
             page_capacity: 60,
             max_url_len: 250,
             page_size_bytes: 4096 * 4,
-            scheduler_queue_cap: 100,
+            scheduler_queue_cap: 1000,
             work_queue_cap: 100,
             work_empty_threshold: 10,
             n_pqueue_threads: if debug { 2 } else { 32 },
@@ -61,7 +61,7 @@ impl Config {
                 "https://cam.ac.uk",
             ],
             user_agent: String::from("Rustbot/0.4"),
-            n_threads: if debug { 1 } else { 256 },
+            n_threads: if debug { 1 } else { 100 },
             n_pqueues: if debug { 2 } else { 16 },
         };
 
