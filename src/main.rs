@@ -22,6 +22,8 @@ use url::Url;
 use rand::Rng;
 use rand::thread_rng;
 use fasthash::metro::hash64;
+use std::io::ErrorKind;
+use std::io;
 
 enum JobStatus {
     Success,
@@ -178,6 +180,12 @@ impl Crawler {
 
         let start = Instant::now();
         let res = self.client.get(url.clone()).await?;
+
+        let status = res.status();
+        if !status.is_success() {
+            return Err(Box::new(io::Error::new(ErrorKind::Other, format!("crawl failed with status {:?}", status))));
+        }
+
         let final_url = res.url().clone();
         let headers = res.headers();
         if Self::headers_not_html(&headers) {
