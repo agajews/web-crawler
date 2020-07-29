@@ -46,8 +46,8 @@ impl Config {
             work_empty_threshold: 10,
             n_pqueue_threads: if debug { 2 } else { 32 },
             pqueue_cache_cap: if debug { 20 } else {
-                12_500_000
-                // 1000
+                // 12_500_000
+                1500
             },
             scheduler_sleep: Duration::from_millis(1),
             pqueue_sleep: Duration::from_millis(1),
