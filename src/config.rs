@@ -26,6 +26,7 @@ pub struct Config {
     pub n_threads: usize,
     pub n_pqueues: usize,
     pub work_empty_threshold: usize,
+    pub min_n_tokens: u32,
 }
 
 impl Config {
@@ -61,8 +62,9 @@ impl Config {
                 "https://cam.ac.uk",
             ],
             user_agent: String::from("Rustbot/0.4"),
-            n_threads: if debug { 1 } else { 75 },
+            n_threads: if debug { 1 } else { 100 },
             n_pqueues: if debug { 2 } else { 32 },
+            min_n_tokens: 250,
         };
 
         Some(config)

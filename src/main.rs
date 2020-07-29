@@ -193,8 +193,9 @@ impl Crawler {
         self.monitor.inc_response_time(start.elapsed().as_millis());
         let document = String::from_utf8_lossy(&document);
 
-        self.add_links(&final_url, &document);
-        self.index_document(job, &document);
+        if let Some(()) = self.index_document(job, &document) {
+            self.add_links(&final_url, &document);
+        }
 
         Ok(JobStatus::Success)
     }
@@ -236,6 +237,10 @@ impl Crawler {
                 *terms.entry(term).or_insert(0) += 1;
                 n_terms += 1;
             }
+        }
+
+        if n_terms < self.config.min_n_tokens {
+            return None;
         }
 
         let terms = terms.into_iter()
