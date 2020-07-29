@@ -142,6 +142,23 @@ impl Crawler {
             !url.starts_with("http")
     }
 
+    fn looks_like_a_trap(url: &Url) -> bool {
+        let segments = match url.path_segments() {
+            Some(segments) => segments,
+            None => return true,
+        };
+        let mut counts = BTreeMap::new();
+        for segment in segments {
+            let prev_count = counts.entry(segment)
+                .or_insert(0);
+            *prev_count += 1;
+        }
+        let n_dups: usize = counts.values()
+            .map(|count| *count - 1)
+            .sum();
+        n_dups >= 2
+    }
+
     fn is_academic(&self, url: &Url) -> bool {
         url.domain()
             .map(|domain| self.academic_re.is_match(domain))
@@ -187,6 +204,7 @@ impl Crawler {
             .filter_map(|href| base_url.join(href).ok())
             .filter(|url| url.host_str().is_some())
             .filter(|url| self.is_academic(url))
+            .filter(|url| !Self::looks_like_a_trap(url))
             .map(|mut url| {
                 url.set_fragment(None);
                 url.set_query(None);
