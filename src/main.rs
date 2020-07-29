@@ -208,6 +208,9 @@ impl Crawler {
 
     fn domain_root(domain: &str) -> String {
         let subdomains = domain.split('.').collect::<Vec<_>>();
+        if subdomains.len() <= 2 {
+            return String::from(domain);
+        }
         subdomains[(subdomains.len() - 2)..].join(".")
     }
 
