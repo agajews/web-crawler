@@ -112,6 +112,7 @@ impl Crawler {
     fn clearly_not_html(url: &str) -> bool {
         url.ends_with(".css") ||
             url.ends_with(".js") ||
+            url.ends_with(".mp3") ||
             url.ends_with(".mp4") ||
             url.ends_with(".m4v") ||
             url.ends_with(".mov") ||
@@ -124,6 +125,7 @@ impl Crawler {
             url.ends_with(".npz") ||
             url.ends_with(".mat") ||
             url.ends_with(".data") ||
+            url.ends_with(".xml") ||
             url.ends_with(".7z") ||
             url.ends_with(".gz") ||
             url.ends_with(".gztar") ||

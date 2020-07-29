@@ -46,6 +46,7 @@ impl Client {
     }
 
     fn build_client(user_agent: &str, ip: IpAddr) -> reqwest::Client {
+        println!("building client on ip {:?}", ip);
         reqwest::Client::builder()
             .user_agent(user_agent)
             .danger_accept_invalid_certs(true)
