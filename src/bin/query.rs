@@ -182,9 +182,7 @@ fn handle_url(shards: &mut [IndexShard], job: UrlJob) {
 fn shard_thread(tid: usize, chunk: Vec<PathBuf>, ready_sender: Sender<()>, work_receiver: Receiver<Job>) {
     let mut shards = Vec::with_capacity(chunk.len());
     for (i, path) in chunk.into_iter().enumerate() {
-        if i % 10 == 0 {
-            println!("opened shard {:?}", path);
-        }
+        println!("opened shard {:?}", path);
         match IndexShard::open(&path) {
             Ok(shard) => shards.push(shard),
             Err(err) => println!("failed to open shard {:?}: {:?}", path, err),
