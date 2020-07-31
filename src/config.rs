@@ -71,7 +71,7 @@ impl Config {
             n_pqueues: if debug { 2 } else { 64 },
             min_n_tokens: 200,
             print_prob: if debug { 1.0 } else { 0.002 },
-            cross_domain_bonus: 5,
+            cross_domain_bonus: 3,
         };
 
         Some(config)
