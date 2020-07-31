@@ -40,7 +40,7 @@ struct Crawler {
     body_re: Regex,
     tag_text_re: Regex,
     term_re: Regex,
-    academic_re: Regex,
+    // academic_re: Regex,
 }
 
 impl Crawler {
@@ -62,10 +62,10 @@ impl Crawler {
             monitor,
             client,
             link_re: Regex::new("href=['\"][^'\"]+['\"]").unwrap(),
-            body_re: Regex::new(r"(?s)<body[^<>]*>.*(</body>|<script>)?").unwrap(),
+            body_re: Regex::new(r"(?s)<(body|/script|/style)([^<>]*)>.*?(</body>|<script|<style)").unwrap(),
             tag_text_re: Regex::new(r">([^<>]+)").unwrap(),
             term_re: Regex::new(r"[a-zA-Z]+").unwrap(),
-            academic_re: Regex::new(r"^.+\.(edu|ac\.??)$").unwrap(),
+            // academic_re: Regex::new(r"^.+\.(edu|ac\.??)$").unwrap(),
         }
     }
 
@@ -85,7 +85,7 @@ impl Crawler {
                         Ok(JobStatus::Skipped) => self.monitor.inc_skipped_jobs(),
                         Err(err) => {
                             self.monitor.inc_failed_jobs();
-                            if thread_rng().gen::<f32>() < 0.02 {
+                            if thread_rng().gen::<f32>() < self.config.print_prob {
                                 println!("error crawling {}: {:?}", job.url, err);
                             }
                         }
@@ -144,11 +144,8 @@ impl Crawler {
             !url.starts_with("http")
     }
 
-    fn looks_like_a_trap(url: &Url) -> bool {
-        let segments = match url.path_segments() {
-            Some(segments) => segments,
-            None => return true,
-        };
+    fn looks_like_a_trap(url: &Url) -> Option<bool> {
+        let segments = url.path_segments()?;
         let mut counts = BTreeMap::new();
         for segment in segments {
             let prev_count = counts.entry(segment)
@@ -158,17 +155,17 @@ impl Crawler {
         let n_dups: usize = counts.values()
             .map(|count| *count - 1)
             .sum();
-        n_dups >= 2
+        Some(n_dups >= 2)
     }
 
-    fn is_academic(&self, url: &Url) -> bool {
-        url.domain()
-            .map(|domain| self.academic_re.is_match(domain))
-            .unwrap_or(false)
-    }
+    // fn is_academic(&self, url: &Url) -> bool {
+    //     url.domain()
+    //         .map(|domain| self.academic_re.is_match(domain))
+    //         .unwrap_or(false)
+    // }
 
     async fn do_job(&mut self, job: Job) -> Result<JobStatus, Box<dyn Error>> {
-        if thread_rng().gen::<f32>() < 0.005 {
+        if thread_rng().gen::<f32>() < self.config.print_prob {
             println!("crawling {}", job.url);
         }
         let url = Url::parse(&job.url).unwrap();
@@ -199,11 +196,13 @@ impl Crawler {
         self.monitor.inc_response_time(start.elapsed().as_millis());
         let document = String::from_utf8_lossy(&document);
 
-        if let Some(()) = self.index_document(job, &document) {
-            self.add_links(&final_url, &document);
+        match self.index_document(job, &document) {
+            Some(()) => {
+                self.add_links(&final_url, &document);
+                Ok(JobStatus::Success)
+            },
+            None => Ok(JobStatus::Skipped),
         }
-
-        Ok(JobStatus::Success)
     }
 
     fn domain_root(domain: &str) -> String {
@@ -224,46 +223,49 @@ impl Crawler {
             .map(|m| m.as_str())
             .map(|s| &s[6..s.len() - 1])
             .filter_map(|href| base_url.join(href).ok())
-            .filter(|url| {
-                let domain = match url.domain() {
-                    Some(domain) => domain,
-                    None => return false,
-                };
-                Self::domain_root(domain) != base_root
-            })
             // .filter(|url| self.is_academic(url))
             .collect::<Vec<_>>();
-        if links.iter().any(Self::looks_like_a_trap) {
+        if links.iter().filter_map(Self::looks_like_a_trap).any(|x| x) {
             return;
         }
         let links = links.into_iter()
-            .map(|mut url| {
+            .map(|url| {
+                let domain = match url.domain() {
+                    Some(domain) => domain,
+                    None => return (url, false),
+                };
+                let is_cross_domain = Self::domain_root(domain) != base_root;
+                (url, is_cross_domain)
+            })
+            .map(|(mut url, is_cross_domain)| {
                 url.set_fragment(None);
                 url.set_query(None);
-                url.into_string()
+                (url.into_string(), is_cross_domain)
             })
-            .filter(|url| !Self::clearly_not_html(url))
-            .filter(|url| url.len() <= self.config.max_url_len)
-            .filter(|url| url.parse::<Uri>().is_ok())
+            .filter(|(url, _)| !Self::clearly_not_html(url))
+            .filter(|(url, _)| url.len() <= self.config.max_url_len)
+            .filter(|(url, _)| url.parse::<Uri>().is_ok())
             .collect::<Vec<_>>();
 
-        for link in links {
-            inc_url(link, &self.pqueues);
+        for (link, is_cross_domain) in links {
+            let inc_amount = if is_cross_domain { self.config.cross_domain_bonus } else { 1 };
+            inc_url(link, inc_amount, &self.pqueues);
         }
     }
 
     fn index_document(&self, job: Job, document: &str) -> Option<()> {
         let mut terms = BTreeMap::<String, u32>::new();
-        let body = self.body_re.find(document)?.as_str();
         let mut n_terms: u32 = 0;
-        for tag_text in self.tag_text_re.captures_iter(body) {
-            for term in self.term_re.find_iter(&tag_text[1]) {
-                let term = term.as_str().to_lowercase();
-                *terms.entry(term).or_insert(0) += 1;
-                n_terms += 1;
+        for section in self.body_re.find_iter(document) {
+            for tag_text in self.tag_text_re.captures_iter(section.as_str()) {
+                for term in self.term_re.find_iter(&tag_text[1]) {
+                    let term = term.as_str().to_lowercase();
+                    *terms.entry(term).or_insert(0) += 1;
+                    n_terms += 1;
+                }
             }
         }
-
+        
         if n_terms < self.config.min_n_tokens {
             return None;
         }
@@ -317,9 +319,9 @@ fn core_thread(
     rt.block_on(async move { crawler.crawl().await });
 }
 
-fn inc_url(url: String, pqueue_senders: &[DiskPQueueSender]) {
+fn inc_url(url: String, inc_amount: u32, pqueue_senders: &[DiskPQueueSender]) {
     let pqueue_id = hash64(&url) as usize % pqueue_senders.len();
-    pqueue_senders[pqueue_id].increment(Job::new(url));
+    pqueue_senders[pqueue_id].increment(Job::new(url), inc_amount);
 }
 
 fn main() {
@@ -333,7 +335,7 @@ fn main() {
         pqueue_receivers.push(pqueue_receiver);
     }
     for url in &config.root_set {
-        inc_url(String::from(*url), &pqueue_senders);
+        inc_url(String::from(*url), 1, &pqueue_senders);
     }
     let (scheduler_thread, scheduler_handle) = Scheduler::spawn(pqueue_receivers, config.clone(), monitor_handle.clone());
 

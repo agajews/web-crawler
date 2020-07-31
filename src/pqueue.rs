@@ -40,8 +40,8 @@ pub struct DiskPQueueSender {
 }
 
 impl DiskPQueueSender {
-    pub fn increment(&self, job: Job) {
-        self.event_sender.send(PQueueEvent::IncRequest(job)).unwrap();
+    pub fn increment(&self, job: Job, inc_amount: u32) {
+        self.event_sender.send(PQueueEvent::IncRequest(job, inc_amount)).unwrap();
     }
 }
 
@@ -57,7 +57,7 @@ pub struct DiskPQueue {
 }
 
 enum PageEvent {
-    Inc(Job),
+    Inc(Job, u32),
 }
 
 impl DiskPQueue {
@@ -132,12 +132,12 @@ impl DiskPQueue {
                     Self::cache_page(thread_event_senders, config, cache, id, page);
                     for action in self.read_map.remove(&id).unwrap() {
                         match action {
-                            PageEvent::Inc(job) => self.increment(job),
+                            PageEvent::Inc(job, inc_amount) => self.increment(job, inc_amount),
                         }
                     }
                 },
-                PQueueEvent::IncRequest(job) => {
-                    self.increment(job);
+                PQueueEvent::IncRequest(job, inc_amount) => {
+                    self.increment(job, inc_amount);
                 },
                 PQueueEvent::PopRequest => {
                     let job = self.pop();
@@ -150,13 +150,13 @@ impl DiskPQueue {
         }
     }
 
-    fn increment(&mut self, job: Job) {
+    fn increment(&mut self, job: Job, inc_amount: u32) {
         let Self { ref mut page_table, ref mut pqueue, ref mut cache, ref monitor, ref mut read_map, ref mut thread_event_senders, ref config, .. } = *self;
         let (initial_bounds, &id) = page_table.get_key_value(&job.cmp_ref()).unwrap();
         let initial_bounds = (*initial_bounds).clone();
         match Self::query_cache(cache, id) {
             Some(page) => {
-                let res = page.increment(job, monitor);
+                let res = page.increment(job, inc_amount, monitor);
                 pqueue.change_priority(&id, page.value).unwrap();
                 // println!("page {} has priority {}", id, page.value);
                 if let Some(new_page) = res {
@@ -179,7 +179,7 @@ impl DiskPQueue {
                 }
                 read_map.entry(id)
                     .or_insert(Vec::new())
-                    .push(PageEvent::Inc(job));
+                    .push(PageEvent::Inc(job, inc_amount));
             },
         }
     }

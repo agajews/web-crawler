@@ -3,6 +3,6 @@ use crate::job::Job;
 
 pub enum PQueueEvent {
     ReadResponse(usize, Page),
-    IncRequest(Job),
+    IncRequest(Job, u32),
     PopRequest,
 }

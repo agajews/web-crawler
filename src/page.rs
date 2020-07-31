@@ -27,18 +27,18 @@ impl Page {
         PageBoundsCmp::Bounds(self.bounds.clone())
     }
 
-    pub fn increment(&mut self, job: Job, monitor: &MonitorHandle) -> Option<Page> {
+    pub fn increment(&mut self, job: Job, inc_amount: u32, monitor: &MonitorHandle) -> Option<Page> {
         // println!("incrementing {} on {:?}", job.url, self.bounds);
         // assert!(Marker::Finite(job.url.clone()) >= self.bounds.left && Marker::Finite(job.url.clone()) < self.bounds.right);
         let (new_value, popped) = match self.entries.binary_search_by_key(&job.url.as_str(), |(url, _, _)| &url.as_str()) {
             Ok(i) => {
-                self.entries[i].1 += 1;
+                self.entries[i].1 += inc_amount;
                 (self.entries[i].1, self.entries[i].2)
             },
             Err(i) => {
                 monitor.inc_seen_urls();
-                self.entries.insert(i, (job.url, 1, false));
-                (1, false)
+                self.entries.insert(i, (job.url, inc_amount, false));
+                (inc_amount, false)
             },
         };
         if !popped && new_value > self.value {

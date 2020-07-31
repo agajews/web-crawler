@@ -27,6 +27,8 @@ pub struct Config {
     pub n_pqueues: usize,
     pub work_empty_threshold: usize,
     pub min_n_tokens: u32,
+    pub print_prob: f32,
+    pub cross_domain_bonus: u32,
 }
 
 impl Config {
@@ -62,11 +64,14 @@ impl Config {
                 // "https://cam.ac.uk",
                 "https://www.reddit.com/r/rust/",
                 "https://news.ycombinator.com",
+                // "http://www.catb.org/esr/",
             ],
             user_agent: String::from("Rustbot/0.4"),
             n_threads: if debug { 1 } else { 75 },
             n_pqueues: if debug { 2 } else { 32 },
-            min_n_tokens: 250,
+            min_n_tokens: 200,
+            print_prob: if debug { 1.0 } else { 0.002 },
+            cross_domain_bonus: 5,
         };
 
         Some(config)
