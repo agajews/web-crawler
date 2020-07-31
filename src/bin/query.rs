@@ -190,6 +190,7 @@ fn shard_thread(tid: usize, chunk: Vec<PathBuf>, ready_sender: Sender<()>, work_
             Err(err) => println!("failed to open shard {:?}: {:?}", path, err),
         }
     }
+    println!("sending ready");
     ready_sender.send(()).unwrap();
 
     for job in work_receiver {
