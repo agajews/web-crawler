@@ -70,3 +70,6 @@ dig aws.amazon.com @127.0.0.1 && sudo su -c 'echo "supersede domain-name-servers
 wget https://docs.cloud.oracle.com/en-us/iaas/Content/Resources/Assets/secondary_vnic_all_configure.sh
 chmod +x secondary_vnic_all_configure.sh
 mv secondary_vnic_all_configure.sh ..
+
+sudo firewall-cmd --zone=public --permanent --add-port=8000/tcp
+sudo firewall-cmd --reload

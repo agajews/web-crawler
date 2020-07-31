@@ -67,11 +67,11 @@ impl Config {
                 // "http://www.catb.org/esr/",
             ],
             user_agent: String::from("Rustbot/0.4"),
-            n_threads: if debug { 1 } else { 75 },
+            n_threads: if debug { 1 } else { 100 },
             n_pqueues: if debug { 2 } else { 64 },
             min_n_tokens: 200,
             print_prob: if debug { 1.0 } else { 0.002 },
-            cross_domain_bonus: 3,
+            cross_domain_bonus: 1,
         };
 
         Some(config)
