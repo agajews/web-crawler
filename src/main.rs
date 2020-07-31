@@ -196,7 +196,7 @@ impl Crawler {
         self.monitor.inc_response_time(start.elapsed().as_millis());
         let document = String::from_utf8_lossy(&document);
 
-        match self.index_document(job, &document) {
+        match self.index_document(String::from(final_url.as_str()), &document) {
             Some(()) => {
                 self.add_links(&final_url, &document);
                 Ok(JobStatus::Success)
@@ -253,7 +253,7 @@ impl Crawler {
         }
     }
 
-    fn index_document(&self, job: Job, document: &str) -> Option<()> {
+    fn index_document(&self, url: String, document: &str) -> Option<()> {
         let mut terms = BTreeMap::<String, u32>::new();
         let mut n_terms: u32 = 0;
         for section in self.body_re.find_iter(document) {
@@ -275,7 +275,7 @@ impl Crawler {
             .collect::<BTreeMap<_, _>>();
         let n_terms = (n_terms as f32).log2() as u8;
 
-        self.index.lock().unwrap().insert(job, n_terms, terms);
+        self.index.lock().unwrap().insert(url, n_terms, terms);
         Some(())
     }
 }

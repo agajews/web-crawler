@@ -1,6 +1,5 @@
 use crate::config::Config;
 use crate::runencoder::RunEncoder;
-use crate::job::Job;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -34,7 +33,7 @@ impl Index {
         }
     }
 
-    pub fn insert(&mut self, job: Job, n_terms: u8, terms: BTreeMap<String, u8>) {
+    pub fn insert(&mut self, url: String, n_terms: u8, terms: BTreeMap<String, u8>) {
         for (term, count) in terms {
             let encoder = match self.cache.get_mut(&term) {
                 Some(encoder) => encoder,
@@ -47,7 +46,7 @@ impl Index {
         }
 
         self.term_counts.push(n_terms);
-        self.urls.push(job.url);
+        self.urls.push(url);
 
         self.url_id += 1;
         if self.url_id == self.config.index_cap {
