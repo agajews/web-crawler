@@ -46,7 +46,7 @@ impl Config {
             scheduler_queue_cap: 1000,
             work_queue_cap: 250,
             work_empty_threshold: 10,
-            n_pqueue_threads: if debug { 2 } else { 32 },
+            n_pqueue_threads: if debug { 2 } else { 16 },
             pqueue_cache_cap: if debug { 20 } else {
                 12_500_000
                 // 1500
@@ -68,7 +68,7 @@ impl Config {
             ],
             user_agent: String::from("Rustbot/0.4"),
             n_threads: if debug { 1 } else { 75 },
-            n_pqueues: if debug { 2 } else { 32 },
+            n_pqueues: if debug { 2 } else { 64 },
             min_n_tokens: 200,
             print_prob: if debug { 1.0 } else { 0.002 },
             cross_domain_bonus: 5,
