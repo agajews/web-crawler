@@ -219,9 +219,8 @@ fn spawn_threads(n_threads: usize) -> Vec<Sender<Job>> {
         thread::spawn(move || shard_thread(tid, chunk, ready_sender, work_receiver) );
     }
 
-    for i in 0..n_threads {
+    for _ in 0..work_senders.len() {
         ready_receiver.recv().unwrap();
-        println!("thread {} ready", i);
     }
 
     work_senders
