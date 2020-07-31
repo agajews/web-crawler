@@ -188,7 +188,6 @@ fn shard_thread(tid: usize, chunk: Vec<PathBuf>, ready_sender: Sender<()>, work_
             Err(err) => println!("failed to open shard {:?}: {:?}", path, err),
         }
     }
-    println!("sending ready");
     ready_sender.send(()).unwrap();
 
     for job in work_receiver {
@@ -217,8 +216,9 @@ fn spawn_threads(n_threads: usize) -> Vec<Sender<Job>> {
         thread::spawn(move || shard_thread(tid, chunk, ready_sender, work_receiver) );
     }
 
-    for _ in 0..n_threads {
+    for i in 0..n_threads {
         ready_receiver.recv().unwrap();
+        println!("thread {} ready", i);
     }
 
     work_senders
